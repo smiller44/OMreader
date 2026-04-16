@@ -1,6 +1,6 @@
 import streamlit as st
 import pdfplumber
-import anthropic
+import google.generativeai as genai
 import json
 import re
 import io
@@ -11,7 +11,10 @@ from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-# ── PAGE CONFIG ───────────────────────────────────────────────────────────────
+# ── CONFIG ────────────────────────────────────────────────────────────────────
+
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+MODEL = genai.GenerativeModel("gemini-1.5-pro")
 
 st.set_page_config(
     page_title="Deal 1-Pager Generator",
@@ -28,22 +31,11 @@ st.markdown("""
 st.title("Deal 1-Pager Generator")
 st.caption("Upload a multifamily offering memorandum. Get a standardized 1-page deal summary as an editable Word doc.")
 
-# ── INPUTS ────────────────────────────────────────────────────────────────────
-
-api_key = st.text_input(
-    "Anthropic API Key",
-    type="password",
-    placeholder="sk-ant-...",
-    help="Used only for this request. Never stored."
-)
-
-uploaded_file = st.file_uploader("Upload Offering Memorandum (PDF)", type="pdf")
-
 # ── EXTRACTION PROMPT ─────────────────────────────────────────────────────────
 
 EXTRACTION_PROMPT = """You are a commercial real estate analyst. Extract structured data from this multifamily offering memorandum.
 
-Return ONLY valid JSON matching the schema below. If a field is not explicitly stated in the OM, set it to null. Never infer, calculate, or fabricate values not directly written in the OM. For bullet arrays, return concise strings (1-2 sentences each). For numeric fields that appear in the OM as strings like "$9.3M", return the string as-is.
+Return ONLY valid JSON matching the schema below. If a field is not explicitly stated in the OM, set it to null. Never infer, calculate, or fabricate values not directly written in the OM. For bullet arrays, return concise strings (1-2 sentences each).
 
 Schema:
 {
@@ -213,7 +205,6 @@ def divider(cell):
     add_para_border_bottom(p, "E0E0E0", "2")
 
 def metric_mini_table(cell, metrics, col_width_inches):
-    """Render a small shaded table of labeled metrics inside a cell."""
     n = len(metrics)
     col_w_dxa = int((col_width_inches * 1440) / n)
     tbl = cell.add_table(rows=1, cols=n)
@@ -246,16 +237,15 @@ def metric_mini_table(cell, metrics, col_width_inches):
 def build_doc(d):
     doc = Document()
 
-    # Page setup — US Letter, tight margins
     sec = doc.sections[0]
-    sec.page_width  = Inches(8.5)
-    sec.page_height = Inches(11)
-    sec.left_margin = sec.right_margin = Inches(0.5)
-    sec.top_margin  = Inches(0.45)
+    sec.page_width    = Inches(8.5)
+    sec.page_height   = Inches(11)
+    sec.left_margin   = sec.right_margin = Inches(0.5)
+    sec.top_margin    = Inches(0.45)
     sec.bottom_margin = Inches(0.4)
 
-    CW = 7.5  # content width in inches
-    HALF = CW / 2
+    CW    = 7.5
+    HALF  = CW / 2
     THIRD = CW / 3
 
     # ── HEADER ──
@@ -263,7 +253,6 @@ def build_doc(d):
     ht.style = "Table Grid"
     ht.width = int(CW * 1440)
 
-    # Title row
     tr = ht.rows[0].cells[0]
     add_cell_shading(tr, "EFEFEF")
     tr.width = int(CW * 1440)
@@ -295,7 +284,6 @@ def build_doc(d):
     r3.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
     r3.font.italic = True
 
-    # Stats row
     sr = ht.rows[1].cells[0]
     add_cell_shading(sr, "EFEFEF")
 
@@ -346,7 +334,7 @@ def build_doc(d):
         cell.width = int(HALF * 1440)
         cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
-    # LEFT
+    # LEFT COLUMN
     section_header(L, "Investment Thesis")
     for b in (d.get("investment_thesis") or ["Not stated in OM"]):
         if b: bullet(L, b)
@@ -372,7 +360,7 @@ def build_doc(d):
     for b in (d.get("location_bullets") or ["Not stated in OM"]):
         if b: bullet(L, b)
 
-    # RIGHT
+    # RIGHT COLUMN
     section_header(R, "Pricing & Capex")
     metric_mini_table(R, [
         ("Purchase Price", ns(d.get("purchase_price"), "Not stated")),
@@ -380,8 +368,8 @@ def build_doc(d):
     ], HALF - 0.12)
     spacer(R, 3)
     metric_mini_table(R, [
-        ("Capex Total",    ns(d.get("capex_total"), "Not stated")),
-        ("Capex / Unit",   ns(d.get("capex_per_unit"), "Not stated")),
+        ("Capex Total",  ns(d.get("capex_total"), "Not stated")),
+        ("Capex / Unit", ns(d.get("capex_per_unit"), "Not stated")),
     ], HALF - 0.12)
     for b in (d.get("capex_bullets") or []):
         if b: bullet(R, b)
@@ -410,19 +398,19 @@ def build_doc(d):
     section_header(R, "Capital Structure (As Stated in OM)")
     for label, key in [
         ("Lender / Program:", "lender"),
-        ("Type:", "debt_type"),
-        ("Term / IO:", "term_io"),
-        ("Rate:", "rate"),
-        ("LTC / LTV:", "ltc_ltv"),
-        ("Equity:", "equity"),
+        ("Type:",             "debt_type"),
+        ("Term / IO:",        "term_io"),
+        ("Rate:",             "rate"),
+        ("LTC / LTV:",        "ltc_ltv"),
+        ("Equity:",           "equity"),
     ]:
         kv(R, label, ns(d.get(key), "Not stated"))
     divider(R)
 
     metric_mini_table(R, [
-        ("Levered IRR",    ns(d.get("levered_irr"), "Not stated")),
-        ("Equity Multiple",ns(d.get("equity_multiple"), "Not stated")),
-        ("Avg CoC",        ns(d.get("avg_coc"), "Not stated")),
+        ("Levered IRR",     ns(d.get("levered_irr"), "Not stated")),
+        ("Equity Multiple", ns(d.get("equity_multiple"), "Not stated")),
+        ("Avg CoC",         ns(d.get("avg_coc"), "Not stated")),
     ], HALF - 0.12)
     spacer(R, 3)
     kv(R, "Exit yr:",  ns(d.get("exit_year"), "Not stated"))
@@ -441,9 +429,9 @@ def build_doc(d):
     bot.width = int(CW * 1440)
     bot_w = int(THIRD * 1440)
 
-    risks_c     = bot.rows[0].cells[0]
-    mitig_c     = bot.rows[0].cells[1]
-    process_c   = bot.rows[0].cells[2]
+    risks_c   = bot.rows[0].cells[0]
+    mitig_c   = bot.rows[0].cells[1]
+    process_c = bot.rows[0].cells[2]
 
     for cell in (risks_c, mitig_c, process_c):
         add_cell_shading(cell, "F4F4F4")
@@ -460,12 +448,12 @@ def build_doc(d):
 
     section_header(process_c, "Process & Status")
     for label, key in [
-        ("Broker:",         "broker"),
-        ("Guidance:",       "guidance"),
-        ("Bid / IC date:",  "bid_date"),
-        ("Tours:",          "tour_status"),
-        ("Internal status:","internal_status"),
-        ("Notes:",          "notes"),
+        ("Broker:",          "broker"),
+        ("Guidance:",        "guidance"),
+        ("Bid / IC date:",   "bid_date"),
+        ("Tours:",           "tour_status"),
+        ("Internal status:", "internal_status"),
+        ("Notes:",           "notes"),
     ]:
         kv(process_c, label, ns(d.get(key), "Not stated"))
 
@@ -482,36 +470,33 @@ def extract_text(file_bytes):
                 text += t + "\n"
     return text
 
-def call_claude(pdf_text, key):
-    client = anthropic.Anthropic(api_key=key)
+def call_gemini(pdf_text):
     truncated = pdf_text[:90000]
-    msg = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4000,
-        messages=[{"role": "user", "content": EXTRACTION_PROMPT + truncated}]
-    )
-    raw = msg.content[0].text.strip()
+    response = MODEL.generate_content(EXTRACTION_PROMPT + truncated)
+    raw = response.text.strip()
     raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     return json.loads(raw)
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 
-if uploaded_file and api_key:
+uploaded_file = st.file_uploader("Upload Offering Memorandum (PDF)", type="pdf")
+
+if uploaded_file:
     if st.button("Generate 1-Pager", type="primary", use_container_width=True):
 
         with st.spinner("Reading PDF..."):
             pdf_bytes = io.BytesIO(uploaded_file.read())
             pdf_text = extract_text(pdf_bytes)
 
-        with st.spinner("Extracting deal data with Claude..."):
+        with st.spinner("Extracting deal data..."):
             try:
-                data = call_claude(pdf_text, api_key)
+                data = call_gemini(pdf_text)
             except json.JSONDecodeError as e:
-                st.error(f"Could not parse Claude response as JSON: {e}")
+                st.error(f"Could not parse response as JSON: {e}")
                 st.stop()
             except Exception as e:
-                st.error(f"Claude API error: {e}")
+                st.error(f"Error: {e}")
                 st.stop()
 
         with st.spinner("Building Word document..."):
@@ -534,10 +519,5 @@ if uploaded_file and api_key:
 
         with st.expander("View extracted JSON"):
             st.json(data)
-
-elif uploaded_file and not api_key:
-    st.warning("Enter your Anthropic API key above.")
-elif api_key and not uploaded_file:
-    st.info("Upload an OM PDF to get started.")
 else:
-    st.info("Enter your API key and upload an OM to get started.")
+    st.info("Upload an OM PDF to get started.")
