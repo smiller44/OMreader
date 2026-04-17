@@ -122,13 +122,17 @@ def b64(path):
             return "data:image/jpeg;base64," + base64.b64encode(f.read()).decode()
     except: return None
 
+def trunc(s, n):
+    s = str(s)
+    return s if len(s) <= n else s[:n].rsplit(" ", 1)[0] + "…"
+
 def bul(items, n=5):
     if not items: return ""
-    return "".join(f'<li>{x}</li>' for x in items[:n])
+    return "".join(f'<li>{trunc(x, 230)}</li>' for x in items[:n])
 
 def kv(k, v):
     if not nv(v): return ""
-    return f'<tr><td class="k">{k}</td><td class="v">{v}</td></tr>'
+    return f'<tr><td class="k">{k}</td><td class="v">{trunc(v, 280)}</td></tr>'
 
 def met(items):
     active = [(l, v) for l, v in items if nv(v)]
@@ -144,7 +148,7 @@ def photo(b, label):
 
 def google_image_search(query, search_key, cx, timeout=8):
     if not search_key or not cx: return None
-    _HEADERS = {
+    _DL_HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
@@ -159,7 +163,7 @@ def google_image_search(query, search_key, cx, timeout=8):
             url = item.get("link", "")
             if not url: continue
             try:
-                r = requests.get(url, timeout=7, headers=_HEADERS)
+                r = requests.get(url, timeout=7, headers=_DL_HEADERS)
                 if r.status_code == 200 and len(r.content) > 5000:
                     img = Image.open(io.BytesIO(r.content)).convert("RGB")
                     if img.width > 200 and img.height > 150:
@@ -377,7 +381,7 @@ def build_pdf(data, img_paths):
             format="Letter",
             print_background=True,
             margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-            scale=0.88,
+            scale=0.84,
         )
         browser.close()
     return pdf
@@ -428,10 +432,12 @@ if uploaded_file:
 
         with st.spinner("Searching for property images..."):
             search_key = st.secrets.get("GOOGLE_SEARCH_KEY", "")
-            cx         = st.secrets.get("GOOGLE_SEARCH_CX", "177920ee6cbc04004")
-            maps_key   = st.secrets.get("maps_key", "")
-            deal       = data.get("deal_name", "")
-            city       = data.get("city_state", "")
+            cx         = st.secrets.get("GOOGLE_SEARCH_CX", "")
+            if not search_key or not cx:
+                st.warning("GOOGLE_SEARCH_KEY or GOOGLE_SEARCH_CX not set — property photos will be blank.")
+            maps_key = st.secrets.get("maps_key", "")
+            deal     = data.get("deal_name", "")
+            city     = data.get("city_state", "")
 
             tmpdir = tempfile.mkdtemp()
             img_paths = {}
