@@ -147,25 +147,23 @@ def photo(b, label):
 
 # ── IMAGE SEARCH ──────────────────────────────────────────────────────────────
 
-def google_image_search(query, search_key, cx, timeout=8):
-    if not search_key or not cx: return None, "missing keys"
+def serp_image_search(query, serp_key, timeout=10):
+    if not serp_key: return None, "missing SERP_KEY"
     _DL_HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
         "Referer": "https://www.google.com/",
     }
     try:
-        params = {"key": search_key, "cx": cx, "q": query,
-                  "searchType": "image", "num": 10, "imgSize": "large", "imgType": "photo"}
-        resp = requests.get("https://www.googleapis.com/customsearch/v1", params=params, timeout=timeout)
+        params = {"engine": "google_images", "q": query, "api_key": serp_key, "num": 10}
+        resp = requests.get("https://serpapi.com/search.json", params=params, timeout=timeout)
         if resp.status_code != 200:
-            return None, f"API {resp.status_code}: {resp.text[:1000]}"
-        items = resp.json().get("items", [])
-        if not items:
+            return None, f"API {resp.status_code}: {resp.text[:500]}"
+        results = resp.json().get("images_results", [])
+        if not results:
             return None, "no results returned"
-        for item in items:
-            url = item.get("link", "")
+        for item in results:
+            url = item.get("original", "")
             if not url: continue
             try:
                 r = requests.get(url, timeout=7, headers=_DL_HEADERS)
@@ -174,7 +172,7 @@ def google_image_search(query, search_key, cx, timeout=8):
                     if img.width > 200 and img.height > 150:
                         return img, "ok"
             except: continue
-        return None, f"all {len(items)} downloads failed"
+        return None, f"all {len(results)} downloads failed"
     except Exception as e:
         return None, str(e)
 
@@ -442,10 +440,9 @@ if uploaded_file:
                 st.stop()
 
         with st.spinner("Searching for property images..."):
-            search_key = st.secrets.get("GOOGLE_SEARCH_KEY", "")
-            cx         = st.secrets.get("GOOGLE_SEARCH_CX", "")
-            if not search_key or not cx:
-                st.warning("GOOGLE_SEARCH_KEY or GOOGLE_SEARCH_CX not set — property photos will be blank.")
+            serp_key = st.secrets.get("SERP_KEY", "")
+            if not serp_key:
+                st.warning("SERP_KEY not set — property photos will be blank.")
             maps_key = st.secrets.get("maps_key", "")
             deal     = data.get("deal_name", "")
             city     = data.get("city_state", "")
@@ -458,7 +455,7 @@ if uploaded_file:
                 ("amenity",  f"{deal} {city} apartment amenity pool gym"),
                 ("kitchen",  f"{deal} {city} apartment kitchen interior"),
             ]:
-                img, status = google_image_search(query, search_key, cx)
+                img, status = serp_image_search(query, serp_key)
                 if status != "ok":
                     st.warning(f"{key}: {status}")
                 img_paths[key] = save_img(img, os.path.join(tmpdir, f"{key}.jpg"))
