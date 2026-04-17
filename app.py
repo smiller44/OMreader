@@ -14,7 +14,7 @@ from docx.oxml import OxmlElement
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-MODEL = genai.GenerativeModel("gemini-1.5-pro")
+MODEL = genai.GenerativeModel("gemini-1.5-flash")
 
 st.set_page_config(
     page_title="Deal 1-Pager Generator",
