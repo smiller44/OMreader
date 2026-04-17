@@ -30,7 +30,7 @@ RULES:
 - Set any field to null if not explicitly stated. Never infer or fabricate.
 - "asset_class": return ONLY "A", "B", or "C". Nothing else.
 - "capex_total"/"capex_per_unit": null unless OM explicitly states a renovation budget. Do NOT use replacement reserves.
-- "key_risks": always write 4-5 tight analytical bullets synthesized from the OM.
+- "key_risks": always write exactly 4 tight analytical bullets synthesized from the OM.
 - "why_this_works": always write 3-4 tight analytical bullets.
 - "investment_thesis": 3 bullets on why this fits a value-add MF strategy.
 - "business_plan": 4 bullets on strategy, rent uplift, hold period, capex plan.
@@ -144,19 +144,25 @@ def photo(b, label):
 
 def google_image_search(query, search_key, cx, timeout=8):
     if not search_key or not cx: return None
+    _HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://www.google.com/",
+    }
     try:
         params = {"key": search_key, "cx": cx, "q": query,
-                  "searchType": "image", "num": 5, "imgSize": "large", "imgType": "photo"}
+                  "searchType": "image", "num": 10, "imgSize": "large", "imgType": "photo"}
         resp = requests.get("https://www.googleapis.com/customsearch/v1", params=params, timeout=timeout)
         if resp.status_code != 200: return None
         for item in resp.json().get("items", []):
             url = item.get("link", "")
             if not url: continue
             try:
-                r = requests.get(url, timeout=6, headers={"User-Agent": "Mozilla/5.0"})
-                if r.status_code == 200:
+                r = requests.get(url, timeout=7, headers=_HEADERS)
+                if r.status_code == 200 and len(r.content) > 5000:
                     img = Image.open(io.BytesIO(r.content)).convert("RGB")
-                    if img.width > 300 and img.height > 200:
+                    if img.width > 200 and img.height > 150:
                         return img
             except: continue
     except: pass
@@ -243,7 +249,7 @@ def build_html(data, img_paths):
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ width: 1100px; font-family: 'Inter', Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.5; }}
+html, body {{ width: 1100px; height: 1060px; overflow: hidden; font-family: 'Inter', Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.5; }}
 
 .hdr {{ background: #111827; padding: 20px 24px 18px; }}
 .deal-name {{ font-size: 24px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 5px; }}
@@ -346,7 +352,7 @@ table {{ width: 100%; border-collapse: collapse; }}
 <div class="bot">
   <div class="col-l">
     <div class="sec">Key Risks</div>
-    <ul>{bul(data.get("key_risks"), 5)}</ul>
+    <ul>{bul(data.get("key_risks"), 4)}</ul>
   </div>
   <div class="col-m">
     <div class="sec">Why This Works</div>
