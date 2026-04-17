@@ -246,10 +246,9 @@ def build_html(data, img_paths):
     tax_block  = f'<div class="divider"></div><table>{kv("Tax Notes", nv(data.get("tax_notes")))}</table>' if nv(data.get("tax_notes")) else ""
 
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ width: 1100px; height: 1060px; overflow: hidden; font-family: 'Inter', Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.5; }}
+html, body {{ width: 1100px; font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.5; }}
 
 .hdr {{ background: #111827; padding: 20px 24px 18px; }}
 .deal-name {{ font-size: 24px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 5px; }}
@@ -378,7 +377,7 @@ def build_pdf(data, img_paths):
             format="Letter",
             print_background=True,
             margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-            scale=0.96,
+            scale=0.88,
         )
         browser.close()
     return pdf
