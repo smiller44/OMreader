@@ -466,7 +466,7 @@ def extract_text(file_bytes):
 
 def call_claude(pdf_text):
     truncated = pdf_text[:90000]
-    client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    client = anthropic.Anthropic(api_key=st.secrets["API_KEY"])
     msg = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=4000,
