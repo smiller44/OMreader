@@ -148,7 +148,7 @@ def photo(b, label):
 # ── IMAGE SEARCH ──────────────────────────────────────────────────────────────
 
 def google_image_search(query, search_key, cx, timeout=8):
-    if not search_key or not cx: return None
+    if not search_key or not cx: return None, "missing keys"
     _DL_HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
@@ -159,8 +159,12 @@ def google_image_search(query, search_key, cx, timeout=8):
         params = {"key": search_key, "cx": cx, "q": query,
                   "searchType": "image", "num": 10, "imgSize": "large", "imgType": "photo"}
         resp = requests.get("https://www.googleapis.com/customsearch/v1", params=params, timeout=timeout)
-        if resp.status_code != 200: return None
-        for item in resp.json().get("items", []):
+        if resp.status_code != 200:
+            return None, f"API {resp.status_code}: {resp.text[:200]}"
+        items = resp.json().get("items", [])
+        if not items:
+            return None, "no results returned"
+        for item in items:
             url = item.get("link", "")
             if not url: continue
             try:
@@ -168,10 +172,11 @@ def google_image_search(query, search_key, cx, timeout=8):
                 if r.status_code == 200 and len(r.content) > 5000:
                     img = Image.open(io.BytesIO(r.content)).convert("RGB")
                     if img.width > 200 and img.height > 150:
-                        return img
+                        return img, "ok"
             except: continue
-    except: pass
-    return None
+        return None, f"all {len(items)} downloads failed"
+    except Exception as e:
+        return None, str(e)
 
 def get_map_image(address, city_state, maps_key):
     if not maps_key or not address: return None
@@ -446,7 +451,9 @@ if uploaded_file:
             ("amenity",  f"{deal} {city} apartment amenity pool gym"),
             ("kitchen",  f"{deal} {city} apartment kitchen interior"),
         ]:
-            img = google_image_search(query, search_key, cx)
+            img, status = google_image_search(query, search_key, cx)
+            if status != "ok":
+                st.warning(f"{key}: {status}")
             img_paths[key] = save_img(img, os.path.join(tmpdir, f"{key}.jpg"))
 
         map_img = get_map_image(data.get("address"), city, maps_key)
