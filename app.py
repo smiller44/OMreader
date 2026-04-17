@@ -30,9 +30,20 @@ st.caption("Upload a multifamily offering memorandum. Get a standardized 1-page 
 
 # ── EXTRACTION PROMPT ─────────────────────────────────────────────────────────
 
-EXTRACTION_PROMPT = """You are a commercial real estate analyst. Extract structured data from this multifamily offering memorandum.
+EXTRACTION_PROMPT = """You are a commercial real estate analyst reviewing a multifamily offering memorandum. Extract structured data and return ONLY valid JSON matching the schema below.
 
-Return ONLY valid JSON matching the schema below. If a field is not explicitly stated in the OM, set it to null. Never infer, calculate, or fabricate values not directly written in the OM. For bullet arrays, return concise strings (1-2 sentences each).
+STRICT RULES:
+- If a field is not explicitly stated in the OM, set it to null. Never infer or fabricate.
+- For "asset_class" return ONLY a single letter: A, B, or C. Nothing else.
+- For "capex_total" and "capex_per_unit" return null unless the OM explicitly states a renovation or value-add capex budget. Do NOT use replacement reserves.
+- For "key_risks" write 4-5 concise bullet strings synthesized from the OM — things like tax risk, lease-up risk, physical condition, market softness, debt risk, affordability restrictions, or anything that could hurt returns. Always populate this even if risks aren't in a dedicated section.
+- For "why_this_works" write 3-4 concise bullet strings synthesized from the OM — the strongest reasons to do the deal: basis, demand story, income quality, rent growth, location moat, etc. Always populate this.
+- For "investment_thesis" write 3 concise bullet strings on why this fits a value-add multifamily strategy.
+- For "business_plan" write 4-5 concise bullet strings describing the value-add plan, rent uplift opportunity, hold period, and strategy type.
+- For "location_bullets" write 4 concise bullet strings on submarket, employers, transit, and supply/lifestyle.
+- For all bullet arrays, each string should be 1-2 sentences max, tight and analytical. No broker fluff.
+- For numeric dollar fields shown in the OM (like NOI, EGI), return the exact figure as a string e.g. "$6,423,039" or "$6.4M".
+- For "deal_status" describe the process status concisely e.g. "Unpriced / Call for Offers" or "Best & Final" etc.
 
 Schema:
 {
@@ -40,7 +51,7 @@ Schema:
   "address": string or null,
   "city_state": string or null,
   "submarket": string or null,
-  "asset_class": string or null,
+  "asset_class": "A" or "B" or "C" or null,
   "deal_type": string or null,
   "deal_status": string or null,
   "broker": string or null,
@@ -331,6 +342,7 @@ def build_doc(d):
         cell.width = int(HALF * 1440)
         cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
+    # LEFT COLUMN
     section_header(L, "Investment Thesis")
     for b in (d.get("investment_thesis") or ["Not stated in OM"]):
         if b: bullet(L, b)
@@ -356,6 +368,7 @@ def build_doc(d):
     for b in (d.get("location_bullets") or ["Not stated in OM"]):
         if b: bullet(L, b)
 
+    # RIGHT COLUMN
     section_header(R, "Pricing & Capex")
     metric_mini_table(R, [
         ("Purchase Price", ns(d.get("purchase_price"), "Not stated")),
@@ -418,6 +431,7 @@ def build_doc(d):
     gap2.paragraph_format.space_before = Pt(0)
     gap2.paragraph_format.space_after = Pt(3)
 
+    # ── BOTTOM BAND ──
     bot = doc.add_table(rows=1, cols=3)
     bot.style = "Table Grid"
     bot.width = int(CW * 1440)
