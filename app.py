@@ -1,3 +1,6 @@
+import subprocess, sys
+subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+
 import streamlit as st
 import pdfplumber
 import anthropic
