@@ -1,6 +1,6 @@
 import streamlit as st
 import pdfplumber
-import google.generativeai as genai
+import anthropic
 import json
 import re
 import io
@@ -12,9 +12,6 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-
-genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-MODEL = genai.GenerativeModel("gemini-2.0-flash")
 
 st.set_page_config(
     page_title="Deal 1-Pager Generator",
@@ -334,7 +331,6 @@ def build_doc(d):
         cell.width = int(HALF * 1440)
         cell.vertical_alignment = WD_ALIGN_VERTICAL.TOP
 
-    # LEFT COLUMN
     section_header(L, "Investment Thesis")
     for b in (d.get("investment_thesis") or ["Not stated in OM"]):
         if b: bullet(L, b)
@@ -360,7 +356,6 @@ def build_doc(d):
     for b in (d.get("location_bullets") or ["Not stated in OM"]):
         if b: bullet(L, b)
 
-    # RIGHT COLUMN
     section_header(R, "Pricing & Capex")
     metric_mini_table(R, [
         ("Purchase Price", ns(d.get("purchase_price"), "Not stated")),
@@ -423,7 +418,6 @@ def build_doc(d):
     gap2.paragraph_format.space_before = Pt(0)
     gap2.paragraph_format.space_after = Pt(3)
 
-    # ── BOTTOM BAND ──
     bot = doc.add_table(rows=1, cols=3)
     bot.style = "Table Grid"
     bot.width = int(CW * 1440)
@@ -470,10 +464,15 @@ def extract_text(file_bytes):
                 text += t + "\n"
     return text
 
-def call_gemini(pdf_text):
+def call_claude(pdf_text):
     truncated = pdf_text[:90000]
-    response = MODEL.generate_content(EXTRACTION_PROMPT + truncated)
-    raw = response.text.strip()
+    client = anthropic.Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    msg = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=4000,
+        messages=[{"role": "user", "content": EXTRACTION_PROMPT + truncated}]
+    )
+    raw = msg.content[0].text.strip()
     raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     return json.loads(raw)
@@ -491,7 +490,7 @@ if uploaded_file:
 
         with st.spinner("Extracting deal data..."):
             try:
-                data = call_gemini(pdf_text)
+                data = call_claude(pdf_text)
             except json.JSONDecodeError as e:
                 st.error(f"Could not parse response as JSON: {e}")
                 st.stop()
