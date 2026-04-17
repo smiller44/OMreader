@@ -414,66 +414,64 @@ def call_claude(pdf_text):
 uploaded_file = st.file_uploader("Upload Offering Memorandum (PDF)", type="pdf")
 
 if uploaded_file:
-    if st.button("Generate 1-Pager", type="primary", use_container_width=True):
+    pdf_bytes = uploaded_file.read()
 
-        pdf_bytes = uploaded_file.read()
+    with st.spinner("Extracting text from OM..."):
+        pdf_text = extract_text(pdf_bytes)
 
-        with st.spinner("Extracting text from OM..."):
-            pdf_text = extract_text(pdf_bytes)
+    with st.spinner("Analyzing deal with Claude..."):
+        try:
+            data = call_claude(pdf_text)
+        except json.JSONDecodeError as e:
+            st.error(f"JSON parse error: {e}")
+            st.stop()
+        except Exception as e:
+            st.error(f"Claude error: {e}")
+            st.stop()
 
-        with st.spinner("Analyzing deal with Claude..."):
-            try:
-                data = call_claude(pdf_text)
-            except json.JSONDecodeError as e:
-                st.error(f"JSON parse error: {e}")
-                st.stop()
-            except Exception as e:
-                st.error(f"Claude error: {e}")
-                st.stop()
+    with st.spinner("Searching for property images..."):
+        search_key = st.secrets.get("GOOGLE_SEARCH_KEY", "")
+        cx         = st.secrets.get("GOOGLE_SEARCH_CX", "")
+        if not search_key or not cx:
+            st.warning("GOOGLE_SEARCH_KEY or GOOGLE_SEARCH_CX not set — property photos will be blank.")
+        maps_key = st.secrets.get("maps_key", "")
+        deal     = data.get("deal_name", "")
+        city     = data.get("city_state", "")
 
-        with st.spinner("Searching for property images..."):
-            search_key = st.secrets.get("GOOGLE_SEARCH_KEY", "")
-            cx         = st.secrets.get("GOOGLE_SEARCH_CX", "")
-            if not search_key or not cx:
-                st.warning("GOOGLE_SEARCH_KEY or GOOGLE_SEARCH_CX not set — property photos will be blank.")
-            maps_key = st.secrets.get("maps_key", "")
-            deal     = data.get("deal_name", "")
-            city     = data.get("city_state", "")
+        tmpdir = tempfile.mkdtemp()
+        img_paths = {}
 
-            tmpdir = tempfile.mkdtemp()
-            img_paths = {}
+        for key, query in [
+            ("exterior", f"{deal} {city} apartment exterior building"),
+            ("amenity",  f"{deal} {city} apartment amenity pool gym"),
+            ("kitchen",  f"{deal} {city} apartment kitchen interior"),
+        ]:
+            img = google_image_search(query, search_key, cx)
+            img_paths[key] = save_img(img, os.path.join(tmpdir, f"{key}.jpg"))
 
-            for key, query in [
-                ("exterior", f"{deal} {city} apartment exterior building"),
-                ("amenity",  f"{deal} {city} apartment amenity pool gym"),
-                ("kitchen",  f"{deal} {city} apartment kitchen interior"),
-            ]:
-                img = google_image_search(query, search_key, cx)
-                img_paths[key] = save_img(img, os.path.join(tmpdir, f"{key}.jpg"))
+        map_img = get_map_image(data.get("address"), city, maps_key)
+        img_paths["map"] = save_img(map_img, os.path.join(tmpdir, "map.jpg"))
 
-            map_img = get_map_image(data.get("address"), city, maps_key)
-            img_paths["map"] = save_img(map_img, os.path.join(tmpdir, "map.jpg"))
+    with st.spinner("Building PDF..."):
+        try:
+            pdf_out = build_pdf(data, img_paths)
+        except Exception as e:
+            st.error(f"PDF build error: {e}")
+            st.stop()
 
-        with st.spinner("Building PDF..."):
-            try:
-                pdf_out = build_pdf(data, img_paths)
-            except Exception as e:
-                st.error(f"PDF build error: {e}")
-                st.stop()
+    deal_name = data.get("deal_name") or "deal"
+    filename  = re.sub(r"[^\w\s-]", "", deal_name).strip().replace(" ", "_") + "_1pager.pdf"
 
-        deal_name = data.get("deal_name") or "deal"
-        filename  = re.sub(r"[^\w\s-]", "", deal_name).strip().replace(" ", "_") + "_1pager.pdf"
+    st.success("Done.")
+    st.download_button(
+        label="Download PDF",
+        data=pdf_out,
+        file_name=filename,
+        mime="application/pdf",
+        use_container_width=True
+    )
 
-        st.success("Done.")
-        st.download_button(
-            label="Download PDF",
-            data=pdf_out,
-            file_name=filename,
-            mime="application/pdf",
-            use_container_width=True
-        )
-
-        with st.expander("View extracted data"):
-            st.json(data)
+    with st.expander("View extracted data"):
+        st.json(data)
 else:
     st.info("Upload an OM PDF to get started.")
