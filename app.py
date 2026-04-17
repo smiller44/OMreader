@@ -30,13 +30,14 @@ RULES:
 - Set any field to null if not explicitly stated. Never infer or fabricate.
 - "asset_class": return ONLY "A", "B", or "C". Nothing else.
 - "capex_total"/"capex_per_unit": null unless OM explicitly states a renovation budget. Do NOT use replacement reserves.
-- "key_risks": always write exactly 4 tight analytical bullets synthesized from the OM.
-- "why_this_works": always write 3-4 tight analytical bullets.
-- "investment_thesis": 3 bullets on why this fits a value-add MF strategy.
-- "business_plan": 4 bullets on strategy, rent uplift, hold period, capex plan.
-- "location_bullets": 4 bullets on submarket, employers, transit, supply/lifestyle.
-- All bullets: 1-2 sentences max, analytical, no broker fluff.
+- "key_risks": exactly 3 tight analytical bullets synthesized from the OM.
+- "why_this_works": exactly 3 tight analytical bullets.
+- "investment_thesis": exactly 3 bullets on why this fits a value-add MF strategy.
+- "business_plan": exactly 3 bullets on strategy, rent uplift, hold period, capex plan.
+- "location_bullets": exactly 3 bullets on submarket, employers, transit, supply/lifestyle.
+- All bullets: MAXIMUM 1 sentence each. Be concise. NEVER use ellipsis (…). Write complete sentences only.
 - Dollar figures: return as strings e.g. "$6,423,039" or "$6.4M".
+- "loss_to_lease": return as a percentage string e.g. "1.5%", NOT a dollar amount.
 - "deal_status": concise e.g. "Unpriced / Call for Offers", "Best & Final", etc.
 
 Schema:
@@ -321,7 +322,7 @@ table {{ width: 100%; border-collapse: collapse; }}
     <div class="sec">Investment Thesis</div>
     <ul>{bul(data.get("investment_thesis"), 3)}</ul>
     <div class="sec">Business Plan</div>
-    <ul>{bul(data.get("business_plan"), 4)}</ul>
+    <ul>{bul(data.get("business_plan"), 3)}</ul>
   </div>
   <div class="col-r">
     <div class="sec">Pricing &amp; Capex</div>
@@ -344,7 +345,7 @@ table {{ width: 100%; border-collapse: collapse; }}
   </div>
   <div class="col-r">
     <div class="sec">Location &amp; Demand Drivers</div>
-    <ul>{bul(data.get("location_bullets"), 4)}</ul>
+    <ul>{bul(data.get("location_bullets"), 3)}</ul>
   </div>
 </div>
 
@@ -355,11 +356,11 @@ table {{ width: 100%; border-collapse: collapse; }}
 <div class="bot">
   <div class="col-l">
     <div class="sec">Key Risks</div>
-    <ul>{bul(data.get("key_risks"), 4)}</ul>
+    <ul>{bul(data.get("key_risks"), 3)}</ul>
   </div>
   <div class="col-m">
     <div class="sec">Why This Works</div>
-    <ul>{bul(data.get("why_this_works"), 4)}</ul>
+    <ul>{bul(data.get("why_this_works"), 3)}</ul>
   </div>
   <div class="col-last">
     <div class="sec">Process &amp; Status</div>
@@ -381,7 +382,7 @@ def build_pdf(data, img_paths):
             format="Letter",
             print_background=True,
             margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-            scale=0.84,
+            scale=0.80,
         )
         browser.close()
     return pdf
@@ -400,7 +401,7 @@ def call_claude(pdf_text):
     client = anthropic.Anthropic(api_key=st.secrets["API_KEY"])
     msg = client.messages.create(
         model="claude-sonnet-4-5",
-        max_tokens=4000,
+        max_tokens=8000,
         messages=[{"role": "user", "content": EXTRACTION_PROMPT + pdf_text[:90000]}]
     )
     raw = msg.content[0].text.strip()
