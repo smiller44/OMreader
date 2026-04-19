@@ -520,6 +520,58 @@ if "processed_file" not in st.session_state:
     st.session_state.data = None
     st.session_state.img_paths = {}
     st.session_state.whisper = ""
+    st.session_state.pipeline = []
+
+def _pipeline_upsert():
+    entry = {
+        "deal_name":      st.session_state.data.get("deal_name") or "Unknown Deal",
+        "city_state":     st.session_state.data.get("city_state") or "",
+        "units":          st.session_state.data.get("units") or "",
+        "whisper":        st.session_state.whisper,
+        "filename":       st.session_state.filename,
+        "pdf_out":        st.session_state.pdf_out,
+        "processed_file": st.session_state.processed_file,
+    }
+    for i, e in enumerate(st.session_state.pipeline):
+        if e["processed_file"] == entry["processed_file"]:
+            st.session_state.pipeline[i] = entry
+            return
+    st.session_state.pipeline.append(entry)
+
+# ── SIDEBAR: DEAL PIPELINE ────────────────────────────────────────────────────
+
+with st.sidebar:
+    st.markdown("### Deal Pipeline")
+    if not st.session_state.pipeline:
+        st.caption("No deals yet. Upload an OM to get started.")
+    else:
+        st.caption(f"{len(st.session_state.pipeline)} deal{'s' if len(st.session_state.pipeline) != 1 else ''}")
+        st.divider()
+        for i, deal in enumerate(reversed(st.session_state.pipeline)):
+            real_idx = len(st.session_state.pipeline) - 1 - i
+            name  = deal["deal_name"]
+            meta  = " · ".join(x for x in [deal["city_state"], f"{deal['units']} units" if deal["units"] else None] if x)
+            label = f"**{name}**"
+            if deal["city_state"] and deal["city_state"] not in name:
+                label += f"\n\n{meta}"
+            st.markdown(label)
+            if deal["whisper"]:
+                st.caption(f"Whisper: {deal['whisper']}")
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.download_button(
+                    "⬇ Download",
+                    data=deal["pdf_out"],
+                    file_name=deal["filename"],
+                    mime="application/pdf",
+                    key=f"dl_{real_idx}",
+                    use_container_width=True,
+                )
+            with col2:
+                if st.button("✕", key=f"rm_{real_idx}", help="Remove from pipeline"):
+                    st.session_state.pipeline.pop(real_idx)
+                    st.rerun()
+            st.divider()
 
 whisper_input = st.text_input(
     "Whisper / Guidance Price",
@@ -594,6 +646,7 @@ if uploaded_file:
         with st.spinner("Building PDF..."):
             try:
                 st.session_state.pdf_out = build_pdf(st.session_state.data, st.session_state.img_paths)
+                _pipeline_upsert()
             except Exception as e:
                 st.error(f"PDF build error: {e}")
                 st.stop()
@@ -605,6 +658,7 @@ if uploaded_file:
                     st.session_state.data, st.session_state.img_paths, whisper_input
                 )
                 st.session_state.whisper = whisper_input
+                _pipeline_upsert()
             except Exception as e:
                 st.error(f"PDF build error: {e}")
 
