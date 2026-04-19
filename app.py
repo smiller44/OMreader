@@ -11,6 +11,7 @@ import base64
 import requests
 import tempfile
 import os
+import threading
 from PIL import Image
 from playwright.sync_api import sync_playwright
 from concurrent.futures import ThreadPoolExecutor
@@ -458,18 +459,19 @@ table {{ width: 100%; border-collapse: collapse; }}
 
 # ── PDF BUILDER ───────────────────────────────────────────────────────────────
 
-@st.cache_resource
+_tls = threading.local()
+
 def _browser():
-    pw = sync_playwright().start()
-    b  = pw.chromium.launch()
-    return b
+    if not getattr(_tls, "browser", None):
+        _tls.pw      = sync_playwright().start()
+        _tls.browser = _tls.pw.chromium.launch()
+    return _tls.browser
 
 def build_pdf(data, img_paths, whisper=""):
-    html    = build_html(data, img_paths, whisper)
-    browser = _browser()
-    page    = browser.new_page(viewport={"width": 1100, "height": 850})
+    html = build_html(data, img_paths, whisper)
+    page = _browser().new_page(viewport={"width": 1100, "height": 850})
     page.set_content(html, wait_until="load")
-    pdf = page.pdf(
+    pdf  = page.pdf(
         format="Letter",
         print_background=True,
         margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
