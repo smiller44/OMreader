@@ -315,69 +315,69 @@ def build_html(data, img_paths, whisper=""):  # noqa: C901
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ width: 1100px; font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.5; }}
+html, body {{ width: 1100px; font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.4; }}
 
-.hdr {{ background: #111827; padding: 20px 24px 18px; }}
-.deal-name {{ font-size: 24px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 5px; }}
-.deal-sub  {{ font-size: 11.5px; color: #9ca3af; margin-bottom: 4px; }}
-.deal-badges {{ font-size: 10px; color: #4b5563; font-style: italic; }}
+.hdr {{ background: #111827; padding: 13px 22px 11px; }}
+.deal-name {{ font-size: 22px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 3px; }}
+.deal-sub  {{ font-size: 11px; color: #9ca3af; margin-bottom: 2px; }}
+.deal-badges {{ font-size: 9.5px; color: #4b5563; font-style: italic; }}
 
 .strip {{ background: #1f2937; display: flex; border-bottom: 1px solid #111827; }}
-.stat {{ flex: 1; padding: 11px 14px; border-right: 1px solid #111827; }}
+.stat {{ flex: 1; padding: 8px 12px; border-right: 1px solid #111827; }}
 .stat:last-child {{ border-right: none; }}
-.sl {{ font-size: 7.5px; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 5px; }}
-.sv {{ font-size: 13px; font-weight: 700; color: #f3f4f6; }}
+.sl {{ font-size: 7px; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }}
+.sv {{ font-size: 12px; font-weight: 700; color: #f3f4f6; }}
 .dim {{ color: #374151 !important; }}
 
 .body {{ display: grid; grid-template-columns: 1fr 1fr; border-bottom: 2px solid #e5e7eb; }}
-.col-l {{ padding: 18px 20px; background: #ffffff; border-right: 2px solid #e5e7eb; }}
-.col-r {{ padding: 18px 20px; background: #f9fafb; }}
+.col-l {{ padding: 12px 16px; background: #ffffff; border-right: 2px solid #e5e7eb; }}
+.col-r {{ padding: 12px 16px; background: #f9fafb; }}
 
-.sec {{ font-size: 8.5px; font-weight: 700; color: #1d4ed8; text-transform: uppercase; letter-spacing: .12em;
-        padding-bottom: 6px; border-bottom: 2px solid #1d4ed8; margin-bottom: 10px; margin-top: 16px; }}
+.sec {{ font-size: 8px; font-weight: 700; color: #1d4ed8; text-transform: uppercase; letter-spacing: .12em;
+        padding-bottom: 4px; border-bottom: 2px solid #1d4ed8; margin-bottom: 8px; margin-top: 12px; }}
 .sec:first-child {{ margin-top: 0; }}
 
 ul {{ list-style: none; padding: 0; margin: 0; }}
-li {{ display: flex; gap: 7px; margin-bottom: 6px; font-size: 10.5px; line-height: 1.5; color: #1f2937; }}
+li {{ display: flex; gap: 6px; margin-bottom: 5px; font-size: 10px; line-height: 1.4; color: #1f2937; }}
 li::before {{ content: "–"; color: #9ca3af; flex-shrink: 0; }}
 
 table {{ width: 100%; border-collapse: collapse; }}
-.k {{ font-size: 10px; color: #6b7280; font-weight: 500; width: 36%; padding: 3px 10px 3px 0; vertical-align: top; white-space: nowrap; }}
-.v {{ font-size: 10.5px; color: #111827; padding: 3px 0; vertical-align: top; }}
+.k {{ font-size: 9.5px; color: #6b7280; font-weight: 500; width: 36%; padding: 2px 8px 2px 0; vertical-align: top; white-space: nowrap; }}
+.v {{ font-size: 10px; color: #111827; padding: 2px 0; vertical-align: top; }}
 
-.mr {{ display: flex; gap: 8px; margin-bottom: 10px; }}
-.mc {{ flex: 1; background: #ffffff; border: 1.5px solid #e5e7eb; border-radius: 6px; padding: 9px 12px; }}
-.ml {{ font-size: 7.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 4px; }}
-.mv {{ font-size: 16px; font-weight: 700; color: #111827; }}
+.mr {{ display: flex; gap: 7px; margin-bottom: 8px; }}
+.mc {{ flex: 1; background: #ffffff; border: 1.5px solid #e5e7eb; border-radius: 5px; padding: 6px 10px; }}
+.ml {{ font-size: 7px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }}
+.mv {{ font-size: 14px; font-weight: 700; color: #111827; }}
 
-.divider {{ border-top: 1px solid #e5e7eb; margin: 10px 0; }}
+.divider {{ border-top: 1px solid #e5e7eb; margin: 8px 0; }}
 
-.sens-wrap {{ padding: 12px 20px; background: #ffffff; border-bottom: 2px solid #e5e7eb; }}
-.sens-tbl {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
+.sens-wrap {{ padding: 7px 16px 9px; background: #ffffff; border-bottom: 2px solid #e5e7eb; }}
+.sens-tbl {{ width: 100%; border-collapse: collapse; }}
 .sens-tbl thead tr {{ background: #f3f4f6; }}
-.sens-tbl th {{ padding: 5px 10px; text-align: left; font-size: 7.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #e5e7eb; }}
-.sens-tbl td {{ padding: 5px 10px; color: #111827; border-bottom: 1px solid #f3f4f6; }}
+.sens-tbl th {{ padding: 3px 10px; text-align: left; font-size: 7px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #e5e7eb; }}
+.sens-tbl td {{ padding: 3px 10px; font-size: 10px; color: #111827; border-bottom: 1px solid #f3f4f6; }}
 .sens-tbl .sc {{ color: #6b7280; font-size: 9px; }}
-.sens-hl {{ background: #eff6ff !important; font-weight: 700; }}
+.sens-hl {{ background: #eff6ff !important; }}
 .sens-hl td {{ color: #1d4ed8 !important; font-weight: 700; }}
 
 .mid {{ display: grid; grid-template-columns: 1fr 1fr; background: #f3f4f6; border-bottom: 2px solid #e5e7eb; }}
 .mid .col-l {{ background: #f3f4f6; border-right: 2px solid #e5e7eb; }}
 .mid .col-r {{ background: #f3f4f6; }}
 
-.photos {{ display: grid; grid-template-columns: repeat(4, 1fr); height: 150px; border-bottom: 2px solid #e5e7eb; }}
+.photos {{ display: grid; grid-template-columns: repeat(4, 1fr); height: 120px; border-bottom: 2px solid #e5e7eb; }}
 .ph {{ position: relative; overflow: hidden; background: #d1d5db; border-right: 2px solid #ffffff; }}
 .ph:last-child {{ border-right: none; }}
 .ph img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
 .nophoto {{ width: 100%; height: 100%; background: #d1d5db; }}
 .phl {{ position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,.7));
-        color: #ffffff; font-size: 9px; font-weight: 700; text-align: center;
-        padding: 18px 0 7px; text-transform: uppercase; letter-spacing: .09em; }}
+        color: #ffffff; font-size: 8.5px; font-weight: 700; text-align: center;
+        padding: 14px 0 5px; text-transform: uppercase; letter-spacing: .09em; }}
 
 .bot {{ display: grid; grid-template-columns: repeat(3, 1fr); background: #f3f4f6; }}
 .bot .col-l {{ background: #f3f4f6; border-right: 2px solid #e5e7eb; }}
-.bot .col-m {{ padding: 16px 18px; background: #f3f4f6; border-right: 2px solid #e5e7eb; }}
-.bot .col-last {{ padding: 16px 18px; background: #f3f4f6; }}
+.bot .col-m {{ padding: 12px 14px; background: #f3f4f6; border-right: 2px solid #e5e7eb; }}
+.bot .col-last {{ padding: 12px 14px; background: #f3f4f6; }}
 </style></head><body>
 
 <div class="hdr">
@@ -492,6 +492,13 @@ if "processed_file" not in st.session_state:
     st.session_state.img_paths = {}
     st.session_state.whisper = ""
 
+whisper_input = st.text_input(
+    "Whisper / Guidance Price",
+    placeholder="e.g. 180000000  or  $180M  or  $180,000,000",
+    help="Raw numbers, shorthand ($180M), or formatted ($180,000,000) all work. Leave blank to skip the sensitivity table.",
+    key="whisper_field",
+)
+
 uploaded_file = st.file_uploader("Upload Offering Memorandum (PDF)", type="pdf")
 
 if uploaded_file:
@@ -551,14 +558,6 @@ if uploaded_file:
             except Exception as e:
                 st.error(f"PDF build error: {e}")
                 st.stop()
-
-    # Whisper input — only shown after OM is processed; changes only rebuild the PDF
-    whisper_input = st.text_input(
-        "Whisper / Guidance Price",
-        placeholder="e.g. 180000000  or  $180M  or  $180,000,000",
-        help="Raw numbers, shorthand ($180M), or formatted ($180,000,000) all work. Leave blank to skip the sensitivity table.",
-        key="whisper_field",
-    )
 
     if whisper_input != st.session_state.whisper:
         with st.spinner("Rebuilding PDF with whisper price..."):
