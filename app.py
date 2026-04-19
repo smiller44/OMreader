@@ -492,15 +492,10 @@ if "processed_file" not in st.session_state:
     st.session_state.img_paths = {}
     st.session_state.whisper = ""
 
-whisper_input = st.text_input("Whisper Price (optional)", placeholder="e.g. $6.4M or $95M",
-                               help="Enter a guiding price to generate a cap rate sensitivity table in the PDF.")
 uploaded_file = st.file_uploader("Upload Offering Memorandum (PDF)", type="pdf")
 
 if uploaded_file:
-    new_file    = uploaded_file.name != st.session_state.processed_file
-    new_whisper = whisper_input != st.session_state.whisper
-
-    if new_file:
+    if uploaded_file.name != st.session_state.processed_file:
         pdf_bytes = uploaded_file.read()
 
         with st.spinner("Extracting text from OM..."):
@@ -543,19 +538,37 @@ if uploaded_file:
         st.session_state.processed_file = uploaded_file.name
         st.session_state.data = data
         st.session_state.img_paths = img_paths
-        deal_name = data.get("deal_name") or "deal"
-        st.session_state.filename = re.sub(r"[^\w\s-]", "", deal_name).strip().replace(" ", "_") + "_1pager.pdf"
+        st.session_state.whisper = ""
+        deal_name  = data.get("deal_name") or "deal"
+        city_state = data.get("city_state") or ""
+        deal_slug  = re.sub(r"[^\w\s-]", "", deal_name).strip().replace(" ", "_")
+        city_slug  = re.sub(r"[^\w\s-]", "", city_state).strip().replace(" ", "_").replace(",", "")
+        st.session_state.filename = f"{deal_slug}_{city_slug}_1pager.pdf" if city_slug else f"{deal_slug}_1pager.pdf"
 
-    if new_file or new_whisper:
         with st.spinner("Building PDF..."):
             try:
-                pdf_out = build_pdf(st.session_state.data, st.session_state.img_paths, whisper_input)
+                st.session_state.pdf_out = build_pdf(st.session_state.data, st.session_state.img_paths)
             except Exception as e:
                 st.error(f"PDF build error: {e}")
                 st.stop()
 
-        st.session_state.pdf_out = pdf_out
-        st.session_state.whisper = whisper_input
+    # Whisper input — only shown after OM is processed; changes only rebuild the PDF
+    whisper_input = st.text_input(
+        "Whisper / Guidance Price",
+        placeholder="e.g. 180000000  or  $180M  or  $180,000,000",
+        help="Raw numbers, shorthand ($180M), or formatted ($180,000,000) all work. Leave blank to skip the sensitivity table.",
+        key="whisper_field",
+    )
+
+    if whisper_input != st.session_state.whisper:
+        with st.spinner("Rebuilding PDF with whisper price..."):
+            try:
+                st.session_state.pdf_out = build_pdf(
+                    st.session_state.data, st.session_state.img_paths, whisper_input
+                )
+                st.session_state.whisper = whisper_input
+            except Exception as e:
+                st.error(f"PDF build error: {e}")
 
     st.success("Done.")
     st.download_button(
@@ -568,6 +581,6 @@ if uploaded_file:
 
     with st.expander("View extracted data"):
         st.json(st.session_state.data)
+
 else:
-    st.session_state.processed_file = None
     st.info("Upload an OM PDF to get started.")
