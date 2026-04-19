@@ -38,6 +38,7 @@ RULES:
 - All bullets: MAXIMUM 1 sentence each. Be concise. NEVER use ellipsis (…). Write complete sentences only.
 - Dollar figures: return as strings e.g. "$6,423,039" or "$6.4M".
 - "loss_to_lease": return as a percentage string e.g. "1.5%", NOT a dollar amount.
+- "retail": if the property has ground-floor or on-site retail, write a brief description (1 sentence). If none, return null.
 - "deal_status": concise e.g. "Unpriced / Call for Offers", "Best & Final", etc.
 
 Schema:
@@ -66,6 +67,7 @@ Schema:
   "economic_occupancy": string or null,
   "amenities": string or null,
   "unit_mix": string or null,
+  "retail": string or null,
   "location_bullets": [string],
   "in_place_rent": string or null,
   "pro_forma_rent": string or null,
@@ -223,7 +225,8 @@ def build_html(data, img_paths):
                         kv("Exit Cap", nv(data.get("exit_cap")))])
     proprows = "".join([kv("Construction", nv(data.get("construction_type"))), kv("Parking", nv(data.get("parking"))),
                         kv("Stories", nv(data.get("stories"))), kv("Econ Occ", nv(data.get("economic_occupancy"))),
-                        kv("Amenities", nv(data.get("amenities"))), kv("Unit Mix", nv(data.get("unit_mix")))])
+                        kv("Amenities", nv(data.get("amenities"))), kv("Unit Mix", nv(data.get("unit_mix"))),
+                        kv("Retail", nv(data.get("retail")))])
     procrows = "".join([kv("Broker", nv(data.get("broker"))), kv("Guidance", nv(data.get("guidance"))),
                         kv("Bid Date", nv(data.get("bid_date"))), kv("Tours", nv(data.get("tour_status"))),
                         kv("Status", nv(data.get("internal_status"))), kv("Notes", nv(data.get("notes")))])
