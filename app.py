@@ -11,7 +11,7 @@ import base64
 import requests
 import tempfile
 import os
-import threading
+from datetime import datetime
 from PIL import Image
 from playwright.sync_api import sync_playwright
 from concurrent.futures import ThreadPoolExecutor
@@ -456,25 +456,26 @@ table {{ width: 100%; border-collapse: collapse; }}
 
 # ── PDF BUILDER ───────────────────────────────────────────────────────────────
 
-_tls = threading.local()
-
-def _browser():
-    if not getattr(_tls, "browser", None):
-        _tls.pw      = sync_playwright().start()
-        _tls.browser = _tls.pw.chromium.launch()
-    return _tls.browser
+_CHROMIUM_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-setuid-sandbox",
+]
 
 def build_pdf(data, img_paths, whisper=""):
     html = build_html(data, img_paths, whisper)
-    page = _browser().new_page(viewport={"width": 1100, "height": 850})
-    page.set_content(html, wait_until="load")
-    pdf  = page.pdf(
-        format="Letter",
-        print_background=True,
-        margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-        scale=0.80,
-    )
-    page.close()
+    with sync_playwright() as p:
+        browser = p.chromium.launch(args=_CHROMIUM_ARGS)
+        page    = browser.new_page(viewport={"width": 1100, "height": 850})
+        page.set_content(html, wait_until="load")
+        pdf = page.pdf(
+            format="Letter",
+            print_background=True,
+            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+            scale=0.80,
+        )
+        browser.close()
     return pdf
 
 # ── TEXT EXTRACTION ───────────────────────────────────────────────────────────
@@ -523,6 +524,8 @@ if "processed_file" not in st.session_state:
     st.session_state.pipeline = []
 
 def _pipeline_upsert():
+    existing = next((i for i, e in enumerate(st.session_state.pipeline)
+                     if e["processed_file"] == st.session_state.processed_file), None)
     entry = {
         "deal_name":      st.session_state.data.get("deal_name") or "Unknown Deal",
         "city_state":     st.session_state.data.get("city_state") or "",
@@ -531,12 +534,17 @@ def _pipeline_upsert():
         "filename":       st.session_state.filename,
         "pdf_out":        st.session_state.pdf_out,
         "processed_file": st.session_state.processed_file,
+        "ts":             datetime.now(),
     }
-    for i, e in enumerate(st.session_state.pipeline):
-        if e["processed_file"] == entry["processed_file"]:
-            st.session_state.pipeline[i] = entry
-            return
-    st.session_state.pipeline.append(entry)
+    if existing is not None:
+        st.session_state.pipeline[existing] = entry
+    else:
+        st.session_state.pipeline.append(entry)
+
+def _msa_key(deal):
+    """City name before the first comma, title-cased — used as MSA group label."""
+    cs = deal.get("city_state", "")
+    return cs.split(",")[0].strip().title() if cs else "Other"
 
 # ── SIDEBAR: DEAL PIPELINE ────────────────────────────────────────────────────
 
@@ -545,32 +553,45 @@ with st.sidebar:
     if not st.session_state.pipeline:
         st.caption("No deals yet. Upload an OM to get started.")
     else:
-        st.caption(f"{len(st.session_state.pipeline)} deal{'s' if len(st.session_state.pipeline) != 1 else ''}")
+        n = len(st.session_state.pipeline)
+        st.caption(f"{n} deal{'s' if n != 1 else ''}")
         st.divider()
-        for i, deal in enumerate(reversed(st.session_state.pipeline)):
-            real_idx = len(st.session_state.pipeline) - 1 - i
-            name  = deal["deal_name"]
-            meta  = " · ".join(x for x in [deal["city_state"], f"{deal['units']} units" if deal["units"] else None] if x)
-            label = f"**{name}**"
-            if deal["city_state"] and deal["city_state"] not in name:
-                label += f"\n\n{meta}"
-            st.markdown(label)
-            if deal["whisper"]:
-                st.caption(f"Whisper: {deal['whisper']}")
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                st.download_button(
-                    "⬇ Download",
-                    data=deal["pdf_out"],
-                    file_name=deal["filename"],
-                    mime="application/pdf",
-                    key=f"dl_{real_idx}",
-                    use_container_width=True,
-                )
-            with col2:
-                if st.button("✕", key=f"rm_{real_idx}", help="Remove from pipeline"):
-                    st.session_state.pipeline.pop(real_idx)
-                    st.rerun()
+
+        # Group by MSA; order groups by most recent deal within each group
+        groups: dict[str, list] = {}
+        for idx, deal in enumerate(st.session_state.pipeline):
+            key = _msa_key(deal)
+            groups.setdefault(key, []).append((idx, deal))
+
+        sorted_groups = sorted(
+            groups.items(),
+            key=lambda kv: max(d["ts"] for _, d in kv[1]),
+            reverse=True,
+        )
+
+        for msa, entries in sorted_groups:
+            st.markdown(f"**{msa.upper()}**")
+            for real_idx, deal in sorted(entries, key=lambda x: x[1]["ts"], reverse=True):
+                units_str = f"{deal['units']} units" if deal["units"] else ""
+                whisper_str = deal["whisper"] if deal["whisper"] else ""
+                meta = "  ·  ".join(x for x in [units_str, whisper_str] if x)
+                st.markdown(f"&nbsp;&nbsp;{deal['deal_name']}")
+                if meta:
+                    st.caption(f"&nbsp;&nbsp;{meta}")
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.download_button(
+                        "⬇ Download",
+                        data=deal["pdf_out"],
+                        file_name=deal["filename"],
+                        mime="application/pdf",
+                        key=f"dl_{real_idx}",
+                        use_container_width=True,
+                    )
+                with col2:
+                    if st.button("✕", key=f"rm_{real_idx}", help="Remove"):
+                        st.session_state.pipeline.pop(real_idx)
+                        st.rerun()
             st.divider()
 
 whisper_input = st.text_input(
