@@ -196,9 +196,64 @@ def save_img(pil_img, path):
         return path
     return None
 
+def parse_dollar(s):
+    if not s: return None
+    s = str(s).strip().replace("$", "").replace(",", "").replace(" ", "")
+    mul = 1
+    if s.upper().endswith("B"):   mul = 1_000_000_000; s = s[:-1]
+    elif s.upper().endswith("M"): mul = 1_000_000;     s = s[:-1]
+    elif s.upper().endswith("K"): mul = 1_000;         s = s[:-1]
+    try:    return float(s) * mul
+    except: return None
+
+def fmt_price(v):
+    if v is None: return "—"
+    if v >= 1_000_000_000: return f"${v/1_000_000_000:.2f}B"
+    if v >= 1_000_000:     return f"${v/1_000_000:.1f}M"
+    if v >= 1_000:         return f"${v/1_000:.0f}K"
+    return f"${v:,.0f}"
+
+def build_sensitivity(whisper_str, units_str, t12_noi_str, pf_noi_str):
+    whisper = parse_dollar(whisper_str)
+    if not whisper: return ""
+    t12  = parse_dollar(t12_noi_str)
+    pf   = parse_dollar(pf_noi_str)
+    if not t12 and not pf: return ""
+    try:    units = int(str(units_str).replace(",", ""))
+    except: units = None
+
+    whisper_label = fmt_price(whisper)
+    ppu_label     = f" ({fmt_price(whisper/units)}/unit)" if units else ""
+
+    rows = ""
+    for pct in [-0.10, -0.05, 0.0, 0.05, 0.10]:
+        price  = whisper * (1 + pct)
+        ppu    = fmt_price(price / units) if units else "—"
+        t12cap = f"{t12/price*100:.2f}%" if t12 else "—"
+        pfcap  = f"{pf/price*100:.2f}%"  if pf  else "—"
+        p_str  = fmt_price(price)
+        lbl    = f"{'+' if pct>0 else ''}{int(pct*100)}%" if pct != 0 else "Whisper"
+        hl     = ' class="sens-hl"' if pct == 0 else ""
+        rows  += f'<tr{hl}><td class="sc">{lbl}</td><td>{p_str}</td><td>{ppu}</td>'
+        if t12: rows += f'<td>{t12cap}</td>'
+        if pf:  rows += f'<td>{pfcap}</td>'
+        rows += '</tr>'
+
+    t12_th = '<th>T-12 Cap</th>'  if t12 else ""
+    pf_th  = '<th>PF Cap</th>'    if pf  else ""
+
+    return f"""
+<div class="sens-wrap">
+  <div class="sec">Cap Rate Sensitivity &nbsp;·&nbsp; Whisper {whisper_label}{ppu_label}</div>
+  <table class="sens-tbl">
+    <thead><tr><th></th><th>Price</th><th>$/Unit</th>{t12_th}{pf_th}</tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>"""
+
 # ── HTML BUILDER ──────────────────────────────────────────────────────────────
 
-def build_html(data, img_paths):
+def build_html(data, img_paths, whisper=""):  # noqa: C901
     E = b64(img_paths.get("exterior"))
     A = b64(img_paths.get("amenity"))
     K = b64(img_paths.get("kitchen"))
@@ -255,6 +310,7 @@ def build_html(data, img_paths):
     stab_block = f'<div class="divider"></div><table>{stabrows}</table>' if stabrows else ""
     ret_block  = f'<div class="divider"></div><table>{retrows}</table>' if retrows else ""
     tax_block  = f'<div class="divider"></div><table>{kv("Tax Notes", nv(data.get("tax_notes")))}</table>' if nv(data.get("tax_notes")) else ""
+    sens_block = build_sensitivity(whisper, data.get("units"), data.get("t12_noi"), data.get("stab_noi"))
 
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
@@ -295,6 +351,15 @@ table {{ width: 100%; border-collapse: collapse; }}
 .mv {{ font-size: 16px; font-weight: 700; color: #111827; }}
 
 .divider {{ border-top: 1px solid #e5e7eb; margin: 10px 0; }}
+
+.sens-wrap {{ padding: 12px 20px; background: #ffffff; border-bottom: 2px solid #e5e7eb; }}
+.sens-tbl {{ width: 100%; border-collapse: collapse; font-size: 10px; }}
+.sens-tbl thead tr {{ background: #f3f4f6; }}
+.sens-tbl th {{ padding: 5px 10px; text-align: left; font-size: 7.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #e5e7eb; }}
+.sens-tbl td {{ padding: 5px 10px; color: #111827; border-bottom: 1px solid #f3f4f6; }}
+.sens-tbl .sc {{ color: #6b7280; font-size: 9px; }}
+.sens-hl {{ background: #eff6ff !important; font-weight: 700; }}
+.sens-hl td {{ color: #1d4ed8 !important; font-weight: 700; }}
 
 .mid {{ display: grid; grid-template-columns: 1fr 1fr; background: #f3f4f6; border-bottom: 2px solid #e5e7eb; }}
 .mid .col-l {{ background: #f3f4f6; border-right: 2px solid #e5e7eb; }}
@@ -344,6 +409,8 @@ table {{ width: 100%; border-collapse: collapse; }}
   </div>
 </div>
 
+{sens_block}
+
 <div class="mid">
   <div class="col-l">
     <div class="sec">Property Summary</div>
@@ -378,8 +445,8 @@ table {{ width: 100%; border-collapse: collapse; }}
 
 # ── PDF BUILDER ───────────────────────────────────────────────────────────────
 
-def build_pdf(data, img_paths):
-    html = build_html(data, img_paths)
+def build_pdf(data, img_paths, whisper=""):
+    html = build_html(data, img_paths, whisper)
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page(viewport={"width": 1100, "height": 850})
@@ -422,11 +489,18 @@ if "processed_file" not in st.session_state:
     st.session_state.pdf_out = None
     st.session_state.filename = None
     st.session_state.data = None
+    st.session_state.img_paths = {}
+    st.session_state.whisper = ""
 
+whisper_input = st.text_input("Whisper Price (optional)", placeholder="e.g. $6.4M or $95M",
+                               help="Enter a guiding price to generate a cap rate sensitivity table in the PDF.")
 uploaded_file = st.file_uploader("Upload Offering Memorandum (PDF)", type="pdf")
 
 if uploaded_file:
-    if uploaded_file.name != st.session_state.processed_file:
+    new_file    = uploaded_file.name != st.session_state.processed_file
+    new_whisper = whisper_input != st.session_state.whisper
+
+    if new_file:
         pdf_bytes = uploaded_file.read()
 
         with st.spinner("Extracting text from OM..."):
@@ -466,20 +540,22 @@ if uploaded_file:
             map_img = get_map_image(data.get("address"), city, maps_key)
             img_paths["map"] = save_img(map_img, os.path.join(tmpdir, "map.jpg"))
 
+        st.session_state.processed_file = uploaded_file.name
+        st.session_state.data = data
+        st.session_state.img_paths = img_paths
+        deal_name = data.get("deal_name") or "deal"
+        st.session_state.filename = re.sub(r"[^\w\s-]", "", deal_name).strip().replace(" ", "_") + "_1pager.pdf"
+
+    if new_file or new_whisper:
         with st.spinner("Building PDF..."):
             try:
-                pdf_out = build_pdf(data, img_paths)
+                pdf_out = build_pdf(st.session_state.data, st.session_state.img_paths, whisper_input)
             except Exception as e:
                 st.error(f"PDF build error: {e}")
                 st.stop()
 
-        deal_name = data.get("deal_name") or "deal"
-        filename  = re.sub(r"[^\w\s-]", "", deal_name).strip().replace(" ", "_") + "_1pager.pdf"
-
-        st.session_state.processed_file = uploaded_file.name
         st.session_state.pdf_out = pdf_out
-        st.session_state.filename = filename
-        st.session_state.data = data
+        st.session_state.whisper = whisper_input
 
     st.success("Done.")
     st.download_button(
