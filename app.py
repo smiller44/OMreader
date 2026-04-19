@@ -458,19 +458,24 @@ table {{ width: 100%; border-collapse: collapse; }}
 
 # ── PDF BUILDER ───────────────────────────────────────────────────────────────
 
+@st.cache_resource
+def _browser():
+    pw = sync_playwright().start()
+    b  = pw.chromium.launch()
+    return b
+
 def build_pdf(data, img_paths, whisper=""):
-    html = build_html(data, img_paths, whisper)
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page(viewport={"width": 1100, "height": 850})
-        page.set_content(html, wait_until="networkidle")
-        pdf = page.pdf(
-            format="Letter",
-            print_background=True,
-            margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-            scale=0.80,
-        )
-        browser.close()
+    html    = build_html(data, img_paths, whisper)
+    browser = _browser()
+    page    = browser.new_page(viewport={"width": 1100, "height": 850})
+    page.set_content(html, wait_until="load")
+    pdf = page.pdf(
+        format="Letter",
+        print_background=True,
+        margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
+        scale=0.80,
+    )
+    page.close()
     return pdf
 
 # ── TEXT EXTRACTION ───────────────────────────────────────────────────────────
@@ -486,9 +491,9 @@ def extract_text(file_bytes):
 def call_claude(pdf_text, api_key):
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=8000,
-        messages=[{"role": "user", "content": EXTRACTION_PROMPT + pdf_text[:90000]}]
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4000,
+        messages=[{"role": "user", "content": EXTRACTION_PROMPT + pdf_text[:50000]}]
     )
     raw = msg.content[0].text.strip()
     raw = re.sub(r"^```json\s*", "", raw)
