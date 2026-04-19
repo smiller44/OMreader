@@ -533,9 +533,9 @@ uploaded_file = st.file_uploader("Upload Offering Memorandum (PDF)", type="pdf")
 
 if uploaded_file:
     if uploaded_file.name != st.session_state.processed_file:
-        pdf_bytes = uploaded_file.read()
-
-        pdf_text = extract_text(pdf_bytes)
+        with st.spinner("Reading PDF..."):
+            pdf_bytes = uploaded_file.read()
+            pdf_text  = extract_text(pdf_bytes)
 
         # Extract all secrets in main thread before spawning workers
         api_key  = st.secrets["API_KEY"]
