@@ -218,10 +218,9 @@ def fmt_price(v):
 def build_sensitivity(whisper_str, units_str, t12_noi_str, pf_noi_str):
     whisper = parse_dollar(whisper_str)
     if not whisper: return ""
-    t12  = parse_dollar(t12_noi_str)
-    pf   = parse_dollar(pf_noi_str)
-    if not t12 and not pf: return ""
-    try:    units = int(str(units_str).replace(",", ""))
+    t12   = parse_dollar(t12_noi_str)
+    pf    = parse_dollar(pf_noi_str)
+    try:  units = int(str(units_str).replace(",", ""))
     except: units = None
 
     whisper_label = fmt_price(whisper)
@@ -236,19 +235,14 @@ def build_sensitivity(whisper_str, units_str, t12_noi_str, pf_noi_str):
         p_str  = fmt_price(price)
         lbl    = f"{'+' if pct>0 else ''}{int(pct*100)}%" if pct != 0 else "Whisper"
         hl     = ' class="sens-hl"' if pct == 0 else ""
-        rows  += f'<tr{hl}><td class="sc">{lbl}</td><td>{p_str}</td><td>{ppu}</td>'
-        if t12: rows += f'<td>{t12cap}</td>'
-        if pf:  rows += f'<td>{pfcap}</td>'
-        rows += '</tr>'
-
-    t12_th = '<th>T-12 Cap</th>'  if t12 else ""
-    pf_th  = '<th>PF Cap</th>'    if pf  else ""
+        rows  += (f'<tr{hl}><td class="sc">{lbl}</td><td>{p_str}</td><td>{ppu}</td>'
+                  f'<td>{t12cap}</td><td>{pfcap}</td></tr>')
 
     return f"""
 <div class="sens-wrap">
   <div class="sec">Cap Rate Sensitivity &nbsp;·&nbsp; Whisper {whisper_label}{ppu_label}</div>
   <table class="sens-tbl">
-    <thead><tr><th></th><th>Price</th><th>$/Unit</th>{t12_th}{pf_th}</tr></thead>
+    <thead><tr><th></th><th>Price</th><th>$/Unit</th><th>T-12 Cap</th><th>PF Cap</th></tr></thead>
     <tbody>{rows}</tbody>
   </table>
 </div>"""
@@ -495,7 +489,7 @@ def call_claude(pdf_text, api_key):
     msg = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=4000,
-        messages=[{"role": "user", "content": EXTRACTION_PROMPT + pdf_text[:50000]}]
+        messages=[{"role": "user", "content": EXTRACTION_PROMPT + pdf_text[:80000]}]
     )
     raw = msg.content[0].text.strip()
     raw = re.sub(r"^```json\s*", "", raw)
