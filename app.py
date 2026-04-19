@@ -13,6 +13,7 @@ import tempfile
 import os
 from PIL import Image
 from playwright.sync_api import sync_playwright
+from concurrent.futures import ThreadPoolExecutor
 
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────────
 
@@ -182,7 +183,7 @@ def get_map_image(address, city_state, maps_key):
     if not maps_key or not address: return None
     try:
         full = f"{address}, {city_state}" if city_state else address
-        params = {"center": full, "zoom": 15, "size": "400x260", "maptype": "roadmap",
+        params = {"center": full, "zoom": 11, "size": "400x260", "maptype": "roadmap",
                   "markers": f"color:red|{full}", "style": "feature:poi|visibility:off", "key": maps_key}
         r = requests.get("https://maps.googleapis.com/maps/api/staticmap", params=params, timeout=10)
         if r.status_code == 200:
@@ -482,6 +483,18 @@ def call_claude(pdf_text):
     raw = re.sub(r"\s*```$", "", raw)
     return json.loads(raw)
 
+def quick_extract(text):
+    """Grab a rough deal name + city from raw PDF text for parallel image searches."""
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    name = lines[0][:60] if lines else ""
+    city = ""
+    for line in lines[:40]:
+        m = re.search(r'[A-Z][a-zA-Z .]+,\s*[A-Z]{2}', line)
+        if m:
+            city = m.group(0)
+            break
+    return name, city
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 if "processed_file" not in st.session_state:
@@ -505,42 +518,50 @@ if uploaded_file:
     if uploaded_file.name != st.session_state.processed_file:
         pdf_bytes = uploaded_file.read()
 
-        with st.spinner("Extracting text from OM..."):
-            pdf_text = extract_text(pdf_bytes)
+        pdf_text = extract_text(pdf_bytes)
 
-        with st.spinner("Analyzing deal with Claude..."):
+        serp_key = st.secrets.get("SERP_KEY", "")
+        maps_key = st.secrets.get("maps_key", "")
+        if not serp_key:
+            st.warning("SERP_KEY not set — property photos will be blank.")
+
+        # Quick heuristic name/city so image searches can fire before Claude finishes
+        q_name, q_city = quick_extract(pdf_text)
+        tmpdir = tempfile.mkdtemp()
+
+        with st.spinner("Analyzing deal and fetching images..."):
             try:
-                data = call_claude(pdf_text)
+                with ThreadPoolExecutor(max_workers=5) as ex:
+                    f_claude   = ex.submit(call_claude, pdf_text)
+                    f_exterior = ex.submit(serp_image_search, f"{q_name} {q_city} apartment exterior building", serp_key)
+                    f_amenity  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment amenity pool gym",  serp_key)
+                    f_kitchen  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment kitchen interior",  serp_key)
+
+                    data = f_claude.result()
+
+                    # Map needs the accurate address from Claude — start after Claude resolves
+                    f_map = ex.submit(get_map_image, data.get("address"), data.get("city_state"), maps_key)
+
+                    img_results = {
+                        "exterior": f_exterior.result(),
+                        "amenity":  f_amenity.result(),
+                        "kitchen":  f_kitchen.result(),
+                        "map":      (f_map.result(), "ok"),
+                    }
             except json.JSONDecodeError as e:
                 st.error(f"JSON parse error: {e}")
                 st.stop()
             except Exception as e:
-                st.error(f"Claude error: {e}")
+                st.error(f"Error: {e}")
                 st.stop()
 
-        with st.spinner("Searching for property images..."):
-            serp_key = st.secrets.get("SERP_KEY", "")
-            if not serp_key:
-                st.warning("SERP_KEY not set — property photos will be blank.")
-            maps_key = st.secrets.get("maps_key", "")
-            deal     = data.get("deal_name", "")
-            city     = data.get("city_state", "")
-
-            tmpdir = tempfile.mkdtemp()
-            img_paths = {}
-
-            for key, query in [
-                ("exterior", f"{deal} {city} apartment exterior building"),
-                ("amenity",  f"{deal} {city} apartment amenity pool gym"),
-                ("kitchen",  f"{deal} {city} apartment kitchen interior"),
-            ]:
-                img, status = serp_image_search(query, serp_key)
-                if status != "ok":
-                    st.warning(f"{key}: {status}")
-                img_paths[key] = save_img(img, os.path.join(tmpdir, f"{key}.jpg"))
-
-            map_img = get_map_image(data.get("address"), city, maps_key)
-            img_paths["map"] = save_img(map_img, os.path.join(tmpdir, "map.jpg"))
+        img_paths = {}
+        for key in ("exterior", "amenity", "kitchen"):
+            img, status = img_results[key]
+            if status != "ok":
+                st.warning(f"{key}: {status}")
+            img_paths[key] = save_img(img, os.path.join(tmpdir, f"{key}.jpg"))
+        img_paths["map"] = save_img(img_results["map"][0], os.path.join(tmpdir, "map.jpg"))
 
         st.session_state.processed_file = uploaded_file.name
         st.session_state.data = data
