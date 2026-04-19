@@ -310,7 +310,10 @@ def build_html(data, img_paths, whisper=""):  # noqa: C901
         for l, v in stats
     )
 
-    capex_met  = met([("Purchase Price", nv(data.get("purchase_price"))), ("Price / Unit", nv(data.get("price_per_unit")))])
+    pp_card  = nv(data.get("purchase_price")) or (fmt_price(w_val) if w_val else None)
+    ppu_card = nv(data.get("price_per_unit")) or (fmt_price(w_val / u_val) if (w_val and u_val) else None)
+    pp_label = "Whisper Price" if (w_val and not nv(data.get("purchase_price"))) else "Purchase Price"
+    capex_met  = met([(pp_label, pp_card), ("Price / Unit", ppu_card)])
     capex_met += met([("Capex Total", nv(data.get("capex_total"))), ("Capex / Unit", nv(data.get("capex_per_unit")))])
     rent_met   = met([("In-Place Rent", nv(data.get("in_place_rent"))),
                       ("Pro Forma Rent", nv(data.get("pro_forma_rent"))),
