@@ -282,7 +282,7 @@ def build_html(data, img_paths, whisper=""):  # noqa: C901
     proprows = "".join([kv("Construction", nv(data.get("construction_type"))), kv("Parking", nv(data.get("parking"))),
                         kv("Stories", nv(data.get("stories"))), kv("Econ Occ", nv(data.get("economic_occupancy"))),
                         kv("Amenities", nv(data.get("amenities"))), kv("Unit Mix", nv(data.get("unit_mix"))),
-                        kv("Retail", nv(data.get("retail")))])
+                        kv("Retail", nv(data.get("retail")) or "No retail")])
     procrows = "".join([kv("Broker", nv(data.get("broker"))), kv("Guidance", nv(data.get("guidance"))),
                         kv("Bid Date", nv(data.get("bid_date"))), kv("Tours", nv(data.get("tour_status"))),
                         kv("Status", nv(data.get("internal_status"))), kv("Notes", nv(data.get("notes")))])
@@ -291,12 +291,24 @@ def build_html(data, img_paths, whisper=""):  # noqa: C901
                                       f"Class {data['asset_class']}" if data.get("asset_class") else None] if x)
     badges = " &nbsp;|&nbsp; ".join(x for x in [data.get("deal_type"), data.get("deal_status"),
                                                   data.get("broker"), "All figures per OM · Not underwritten"] if x)
+    w_val   = parse_dollar(whisper)
+    u_val   = None
+    try:    u_val = int(str(data.get("units", "")).replace(",", ""))
+    except: pass
+    t12_val = parse_dollar(data.get("t12_noi"))
+    pf_val  = parse_dollar(data.get("stab_noi"))
+
+    stat_price = fmt_price(w_val)                          if w_val else ns(data.get("purchase_price"))
+    stat_ppu   = fmt_price(w_val / u_val)                  if (w_val and u_val) else ns(data.get("price_per_unit"))
+    noi_cap    = t12_val or pf_val
+    stat_cap   = f"{noi_cap/w_val*100:.2f}%"              if (w_val and noi_cap) else ns(data.get("going_in_cap_rate"))
+
     stats  = [("UNITS", ns(data.get("units"))), ("AVG SF", ns(data.get("avg_sf"))),
               ("YR BUILT / RENO", f"{ns(data.get('year_built'),'—')} / {ns(data.get('year_renovated'),'—')}"),
               ("OCCUPANCY", ns(data.get("physical_occupancy"))),
-              ("PURCHASE PRICE", ns(data.get("purchase_price"))),
-              ("PRICE / UNIT", ns(data.get("price_per_unit"))),
-              ("GOING-IN CAP", ns(data.get("going_in_cap_rate")))]
+              ("WHISPER PRICE" if w_val else "PURCHASE PRICE", stat_price),
+              ("PRICE / UNIT",  stat_ppu),
+              ("GOING-IN CAP",  stat_cap)]
     stat_html = "".join(
         f'<div class="stat"><div class="sl">{l}</div>'
         f'<div class="sv{"" if v != "—" else " dim"}">{v}</div></div>'
@@ -471,8 +483,8 @@ def extract_text(file_bytes):
             if t: text += t + "\n"
     return text
 
-def call_claude(pdf_text):
-    client = anthropic.Anthropic(api_key=st.secrets["API_KEY"])
+def call_claude(pdf_text, api_key):
+    client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
         model="claude-sonnet-4-5",
         max_tokens=8000,
@@ -520,6 +532,8 @@ if uploaded_file:
 
         pdf_text = extract_text(pdf_bytes)
 
+        # Extract all secrets in main thread before spawning workers
+        api_key  = st.secrets["API_KEY"]
         serp_key = st.secrets.get("SERP_KEY", "")
         maps_key = st.secrets.get("maps_key", "")
         if not serp_key:
@@ -532,7 +546,7 @@ if uploaded_file:
         with st.spinner("Analyzing deal and fetching images..."):
             try:
                 with ThreadPoolExecutor(max_workers=5) as ex:
-                    f_claude   = ex.submit(call_claude, pdf_text)
+                    f_claude   = ex.submit(call_claude, pdf_text, api_key)
                     f_exterior = ex.submit(serp_image_search, f"{q_name} {q_city} apartment exterior building", serp_key)
                     f_amenity  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment amenity pool gym",  serp_key)
                     f_kitchen  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment kitchen interior",  serp_key)
