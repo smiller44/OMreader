@@ -24,7 +24,7 @@ CONFIG = {
     "PDF_VIEWPORT_WIDTH":  1100,
     "PDF_VIEWPORT_HEIGHT": 850,
     "PDF_SCALE":           0.80,
-    "SERP_RESULTS_LIMIT":  10,
+    "IMAGE_RESULTS_LIMIT": 10,
     "MIN_IMAGE_BYTES":     5000,
     "MIN_IMAGE_WIDTH":     200,
     "MIN_IMAGE_HEIGHT":    150,
@@ -168,18 +168,26 @@ _DL_HEADERS = {
     "Referer": "https://www.google.com/",
 }
 
-def serp_image_search(query, serp_key, timeout=10):
-    if not serp_key: return None, "missing SERP_KEY"
+def google_image_search(query, search_key, search_cx, timeout=10):
+    if not search_key or not search_cx: return None, "missing GOOGLE_SEARCH_KEY or GOOGLE_SEARCH_CX"
     try:
-        params = {"engine": "google_images", "q": query, "api_key": serp_key, "num": CONFIG["SERP_RESULTS_LIMIT"]}
-        resp = requests.get("https://serpapi.com/search.json", params=params, timeout=timeout)
+        params = {
+            "key":        search_key,
+            "cx":         search_cx,
+            "q":          query,
+            "searchType": "image",
+            "num":        CONFIG["IMAGE_RESULTS_LIMIT"],
+            "imgSize":    "large",
+            "imgType":    "photo",
+        }
+        resp = requests.get("https://www.googleapis.com/customsearch/v1", params=params, timeout=timeout)
         if resp.status_code != 200:
             return None, f"API {resp.status_code}"
-        results = resp.json().get("images_results", [])
-        if not results:
+        items = resp.json().get("items", [])
+        if not items:
             return None, "no results returned"
-        for item in results:
-            url = item.get("original", "")
+        for item in items:
+            url = item.get("link", "")
             if not url: continue
             try:
                 r = requests.get(url, timeout=7, headers=_DL_HEADERS)
@@ -189,16 +197,16 @@ def serp_image_search(query, serp_key, timeout=10):
                         return img, "ok"
             except Exception:
                 continue
-        return None, f"all {len(results)} downloads failed"
+        return None, f"all {len(items)} downloads failed"
     except Exception as e:
-        logger.warning("serp_image_search failed: %s", e)
+        logger.warning("google_image_search failed: %s", e)
         return None, str(e)
 
-def serp_search_with_fallback(queries, serp_key):
+def google_search_with_fallback(queries, search_key, search_cx):
     """Try each query in order, returning the first successful result."""
     last_status = "no queries provided"
     for query in queries:
-        img, status = serp_image_search(query, serp_key)
+        img, status = google_image_search(query, search_key, search_cx)
         if status == "ok":
             return img, "ok"
         last_status = status
@@ -1008,10 +1016,11 @@ if uploaded_file and uploaded_file.name != st.session_state.processed_file:
         st.error("API_KEY not configured. Please add it to your Streamlit secrets.")
         st.stop()
 
-    serp_key = st.secrets.get("SERP_KEY", "")
-    maps_key = st.secrets.get("maps_key", "")
-    if not serp_key:
-        st.warning("SERP_KEY not set — property photos will be blank.")
+    search_key = st.secrets.get("GOOGLE_SEARCH_KEY", "")
+    search_cx  = st.secrets.get("GOOGLE_SEARCH_CX", "")
+    maps_key   = st.secrets.get("maps_key", "")
+    if not search_key or not search_cx:
+        st.warning("GOOGLE_SEARCH_KEY or GOOGLE_SEARCH_CX not set — property photos will be blank.")
 
     with st.spinner("Reading PDF..."):
         pdf_text = extract_text(pdf_bytes)
@@ -1032,9 +1041,9 @@ if uploaded_file and uploaded_file.name != st.session_state.processed_file:
     with st.spinner("Fetching images..."):
         try:
             with ThreadPoolExecutor(max_workers=4) as ex:
-                f_exterior = ex.submit(serp_search_with_fallback, queries["exterior"], serp_key)
-                f_amenity  = ex.submit(serp_search_with_fallback, queries["amenity"],  serp_key)
-                f_kitchen  = ex.submit(serp_search_with_fallback, queries["kitchen"],  serp_key)
+                f_exterior = ex.submit(google_search_with_fallback, queries["exterior"], search_key, search_cx)
+                f_amenity  = ex.submit(google_search_with_fallback, queries["amenity"],  search_key, search_cx)
+                f_kitchen  = ex.submit(google_search_with_fallback, queries["kitchen"],  search_key, search_cx)
                 f_map      = ex.submit(get_map_image, data.get("address"), data.get("city_state"), maps_key)
                 img_results = {
                     "exterior": f_exterior.result(),
