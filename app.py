@@ -656,18 +656,18 @@ def quick_extract(text):
 
 @st.cache_resource
 def _get_supabase():
-    from supabase import create_client
     url = st.secrets.get("SUPABASE_URL", "")
     key = st.secrets.get("SUPABASE_KEY", "")
     if not url or not key:
         return None
+    from supabase import create_client  # only import when credentials are present
     return create_client(url, key)
 
 def _db_load_pipeline():
-    sb = _get_supabase()
-    if not sb:
-        return []
     try:
+        sb = _get_supabase()
+        if not sb:
+            return []
         rows = sb.table("deals").select("*").order("ts", desc=True).execute().data or []
         return [
             {
