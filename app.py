@@ -608,6 +608,87 @@ def quick_extract(text):
             break
     return name, city
 
+# ── SUPABASE ──────────────────────────────────────────────────────────────────
+
+@st.cache_resource
+def _get_supabase():
+    from supabase import create_client
+    url = st.secrets.get("SUPABASE_URL", "")
+    key = st.secrets.get("SUPABASE_KEY", "")
+    if not url or not key:
+        return None
+    return create_client(url, key)
+
+def _db_load_pipeline():
+    sb = _get_supabase()
+    if not sb:
+        return []
+    try:
+        rows = sb.table("deals").select("*").order("ts", desc=True).execute().data or []
+        return [
+            {
+                "deal_name":      r["deal_name"],
+                "city_state":     r["city_state"],
+                "units":          r["units"],
+                "whisper":        r["whisper"],
+                "filename":       r["filename"],
+                "pdf_path":       r["pdf_path"],
+                "processed_file": r["processed_file"],
+                "ts":             datetime.fromisoformat(r["ts"]),
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.warning("Failed to load pipeline from Supabase: %s", e)
+        return []
+
+def _db_upsert_deal(entry, pdf_bytes):
+    sb = _get_supabase()
+    if not sb:
+        return
+    try:
+        pdf_path = entry["pdf_path"]
+        # remove before re-upload so upsert works regardless of supabase-py version
+        try:
+            sb.storage.from_("deal-pdfs").remove([pdf_path])
+        except Exception:
+            pass
+        sb.storage.from_("deal-pdfs").upload(pdf_path, pdf_bytes, {"content-type": "application/pdf"})
+        sb.table("deals").upsert({
+            "processed_file": entry["processed_file"],
+            "deal_name":      entry["deal_name"],
+            "city_state":     entry["city_state"],
+            "units":          entry["units"],
+            "whisper":        entry["whisper"],
+            "filename":       entry["filename"],
+            "pdf_path":       pdf_path,
+            "ts":             entry["ts"].isoformat(),
+        }).execute()
+        _fetch_pdf.clear()
+    except Exception as e:
+        logger.warning("Failed to save deal to Supabase: %s", e)
+
+def _db_delete_deal(processed_file, pdf_path):
+    sb = _get_supabase()
+    if not sb:
+        return
+    try:
+        sb.storage.from_("deal-pdfs").remove([pdf_path])
+        sb.table("deals").delete().eq("processed_file", processed_file).execute()
+    except Exception as e:
+        logger.warning("Failed to delete deal from Supabase: %s", e)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fetch_pdf(pdf_path: str, ts) -> bytes | None:  # ts is a cache-bust key, not used in body
+    sb = _get_supabase()
+    if not sb:
+        return None
+    try:
+        return bytes(sb.storage.from_("deal-pdfs").download(pdf_path))
+    except Exception as e:
+        logger.warning("Failed to fetch PDF from Supabase: %s", e)
+        return None
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 if "processed_file" not in st.session_state:
@@ -617,9 +698,10 @@ if "processed_file" not in st.session_state:
     st.session_state.data = None
     st.session_state.img_b64s = {}
     st.session_state.whisper = ""
-    st.session_state.pipeline = []
+    st.session_state.pipeline = _db_load_pipeline()
 
 def _pipeline_upsert():
+    pdf_path = "deals/" + re.sub(r"[^\w.-]", "_", st.session_state.processed_file)
     existing = next((i for i, e in enumerate(st.session_state.pipeline)
                      if e["processed_file"] == st.session_state.processed_file), None)
     entry = {
@@ -628,7 +710,7 @@ def _pipeline_upsert():
         "units":          st.session_state.data.get("units") or "",
         "whisper":        st.session_state.whisper,
         "filename":       st.session_state.filename,
-        "pdf_out":        st.session_state.pdf_out,
+        "pdf_path":       pdf_path,
         "processed_file": st.session_state.processed_file,
         "ts":             datetime.now(),
     }
@@ -636,11 +718,185 @@ def _pipeline_upsert():
         st.session_state.pipeline[existing] = entry
     else:
         st.session_state.pipeline.append(entry)
+    _db_upsert_deal(entry, st.session_state.pdf_out)
+
+# Maps (city_lower, state_upper) → MSA label. State disambiguates overlapping city names.
+_CITY_TO_MSA: dict[tuple[str, str], str] = {
+    # California
+    ("anaheim",          "CA"): "Anaheim-Santa Ana-Irvine",
+    ("santa ana",        "CA"): "Anaheim-Santa Ana-Irvine",
+    ("irvine",           "CA"): "Anaheim-Santa Ana-Irvine",
+    ("los angeles",      "CA"): "L.A. - Long Beach-Glendale",
+    ("long beach",       "CA"): "L.A. - Long Beach-Glendale",
+    ("glendale",         "CA"): "L.A. - Long Beach-Glendale",
+    ("burbank",          "CA"): "L.A. - Long Beach-Glendale",
+    ("pasadena",         "CA"): "L.A. - Long Beach-Glendale",
+    ("torrance",         "CA"): "L.A. - Long Beach-Glendale",
+    ("inglewood",        "CA"): "L.A. - Long Beach-Glendale",
+    ("compton",          "CA"): "L.A. - Long Beach-Glendale",
+    ("san francisco",    "CA"): "San Francisco",
+    ("san jose",         "CA"): "San Jose-Sunnyvale-S. Clara",
+    ("sunnyvale",        "CA"): "San Jose-Sunnyvale-S. Clara",
+    ("santa clara",      "CA"): "San Jose-Sunnyvale-S. Clara",
+    ("cupertino",        "CA"): "San Jose-Sunnyvale-S. Clara",
+    ("mountain view",    "CA"): "San Jose-Sunnyvale-S. Clara",
+    ("palo alto",        "CA"): "San Jose-Sunnyvale-S. Clara",
+    ("oakland",          "CA"): "Oakland-Hayward-Berkeley",
+    ("hayward",          "CA"): "Oakland-Hayward-Berkeley",
+    ("berkeley",         "CA"): "Oakland-Hayward-Berkeley",
+    ("fremont",          "CA"): "Oakland-Hayward-Berkeley",
+    ("san diego",        "CA"): "San Diego",
+    ("chula vista",      "CA"): "San Diego",
+    ("riverside",        "CA"): "Riverside-San Bernardino",
+    ("san bernardino",   "CA"): "Riverside-San Bernardino",
+    ("ontario",          "CA"): "Riverside-San Bernardino",
+    ("moreno valley",    "CA"): "Riverside-San Bernardino",
+    ("oxnard",           "CA"): "Oxnard-Thousand Oaks",
+    ("thousand oaks",    "CA"): "Oxnard-Thousand Oaks",
+    ("ventura",          "CA"): "Oxnard-Thousand Oaks",
+    ("santa barbara",    "CA"): "Santa Maria-Santa Barbara",
+    ("santa maria",      "CA"): "Santa Maria-Santa Barbara",
+    ("santa rosa",       "CA"): "Santa Rosa",
+    ("vallejo",          "CA"): "Vallejo/Fairfield/Napa",
+    ("fairfield",        "CA"): "Vallejo/Fairfield/Napa",
+    ("napa",             "CA"): "Vallejo/Fairfield/Napa",
+    # Texas
+    ("dallas",           "TX"): "Dallas-Plano-Irving",
+    ("plano",            "TX"): "Dallas-Plano-Irving",
+    ("irving",           "TX"): "Dallas-Plano-Irving",
+    ("garland",          "TX"): "Dallas-Plano-Irving",
+    ("mesquite",         "TX"): "Dallas-Plano-Irving",
+    ("richardson",       "TX"): "Dallas-Plano-Irving",
+    ("fort worth",       "TX"): "Ft. Worth-Arlington",
+    ("arlington",        "TX"): "Ft. Worth-Arlington",
+    ("houston",          "TX"): "Houston",
+    ("austin",           "TX"): "Austin",
+    ("san antonio",      "TX"): "San Antonio",
+    # Florida
+    ("miami",            "FL"): "Miami-Kendall",
+    ("kendall",          "FL"): "Miami-Kendall",
+    ("hialeah",          "FL"): "Miami-Kendall",
+    ("doral",            "FL"): "Miami-Kendall",
+    ("fort lauderdale",  "FL"): "Ft. Lauderdale-Pompano",
+    ("pompano beach",    "FL"): "Ft. Lauderdale-Pompano",
+    ("hollywood",        "FL"): "Ft. Lauderdale-Pompano",
+    ("coral springs",    "FL"): "Ft. Lauderdale-Pompano",
+    ("west palm beach",  "FL"): "West Palm-Boca-Delray",
+    ("boca raton",       "FL"): "West Palm-Boca-Delray",
+    ("delray beach",     "FL"): "West Palm-Boca-Delray",
+    ("boynton beach",    "FL"): "West Palm-Boca-Delray",
+    ("orlando",          "FL"): "Orlando",
+    ("kissimmee",        "FL"): "Orlando",
+    ("sanford",          "FL"): "Orlando",
+    ("jacksonville",     "FL"): "Jacksonville",
+    ("tampa",            "FL"): "Tampa-St. Pete",
+    ("st. pete",         "FL"): "Tampa-St. Pete",
+    ("st. petersburg",   "FL"): "Tampa-St. Pete",
+    ("clearwater",       "FL"): "Tampa-St. Pete",
+    ("palm bay",         "FL"): "Palm Bay-Melbourne",
+    ("melbourne",        "FL"): "Palm Bay-Melbourne",
+    ("naples",           "FL"): "Naples-Marco Island",
+    ("marco island",     "FL"): "Naples-Marco Island",
+    ("sarasota",         "FL"): "N. Port-Sarasota-Bradenton",
+    ("bradenton",        "FL"): "N. Port-Sarasota-Bradenton",
+    ("north port",       "FL"): "N. Port-Sarasota-Bradenton",
+    # Georgia
+    ("atlanta",          "GA"): "Atlanta",
+    ("marietta",         "GA"): "Atlanta",
+    ("savannah",         "GA"): "Atlanta",
+    # Illinois
+    ("chicago",          "IL"): "Chicago",
+    ("aurora",           "IL"): "Chicago",
+    ("naperville",       "IL"): "Chicago",
+    # Colorado
+    ("denver",           "CO"): "Denver",
+    ("aurora",           "CO"): "Denver",
+    ("lakewood",         "CO"): "Denver",
+    ("boulder",          "CO"): "Boulder",
+    # Arizona
+    ("phoenix",          "AZ"): "Phoenix",
+    ("scottsdale",       "AZ"): "Phoenix",
+    ("tempe",            "AZ"): "Phoenix",
+    ("mesa",             "AZ"): "Phoenix",
+    ("chandler",         "AZ"): "Phoenix",
+    ("gilbert",          "AZ"): "Phoenix",
+    ("glendale",         "AZ"): "Phoenix",
+    ("peoria",           "AZ"): "Phoenix",
+    # Nevada
+    ("las vegas",        "NV"): "Las Vegas",
+    ("henderson",        "NV"): "Las Vegas",
+    ("north las vegas",  "NV"): "Las Vegas",
+    # Washington
+    ("seattle",          "WA"): "Seattle",
+    ("bellevue",         "WA"): "Seattle",
+    ("redmond",          "WA"): "Seattle",
+    ("tacoma",           "WA"): "Tacoma-Lakewood",
+    ("lakewood",         "WA"): "Tacoma-Lakewood",
+    # Oregon
+    ("portland",         "OR"): "Portland",
+    ("beaverton",        "OR"): "Portland",
+    # Utah
+    ("salt lake city",   "UT"): "Salt Lake City",
+    ("west valley city", "UT"): "Salt Lake City",
+    ("provo",            "UT"): "Salt Lake City",
+    # North Carolina
+    ("charlotte",        "NC"): "Charlotte",
+    ("raleigh",          "NC"): "Raleigh",
+    ("durham",           "NC"): "Raleigh",
+    ("cary",             "NC"): "Raleigh",
+    # Tennessee
+    ("nashville",        "TN"): "Nashville",
+    ("memphis",          "TN"): "Nashville",
+    # South Carolina
+    ("charleston",       "SC"): "Charleston",
+    ("greenville",       "SC"): "Greenville",
+    # Virginia / DC area
+    ("arlington",        "VA"): "Washington-Northern VA",
+    ("alexandria",       "VA"): "Washington-Northern VA",
+    ("falls church",     "VA"): "Washington-Northern VA",
+    ("fairfax",          "VA"): "Washington-Northern VA",
+    ("reston",           "VA"): "Washington-Northern VA",
+    ("washington",       "DC"): "Washington-Northern VA",
+    # Maryland
+    ("baltimore",        "MD"): "Baltimore",
+    # New York
+    ("new york",         "NY"): "New York-White Plains",
+    ("white plains",     "NY"): "New York-White Plains",
+    ("yonkers",          "NY"): "New York-White Plains",
+    ("bronx",            "NY"): "New York-White Plains",
+    ("brooklyn",         "NY"): "New York-White Plains",
+    ("queens",           "NY"): "New York-White Plains",
+    ("staten island",    "NY"): "New York-White Plains",
+    ("hempstead",        "NY"): "Nassau Co. - Suffolk Co.",
+    ("brentwood",        "NY"): "Nassau Co. - Suffolk Co.",
+    # New Jersey
+    ("newark",           "NJ"): "Newark-Jersey City",
+    ("jersey city",      "NJ"): "Newark-Jersey City",
+    ("paterson",         "NJ"): "Newark-Jersey City",
+    # Connecticut
+    ("bridgeport",       "CT"): "Bridgeport-Stamford",
+    ("stamford",         "CT"): "Bridgeport-Stamford",
+    ("norwalk",          "CT"): "Bridgeport-Stamford",
+    # Massachusetts
+    ("boston",           "MA"): "Boston",
+    ("worcester",        "MA"): "Worcester",
+    ("springfield",      "MA"): "Boston",
+    # Pennsylvania
+    ("philadelphia",     "PA"): "Philadelphia",
+    # Minnesota
+    ("minneapolis",      "MN"): "Minneapolis-St. Paul",
+    ("st. paul",         "MN"): "Minneapolis-St. Paul",
+    ("saint paul",       "MN"): "Minneapolis-St. Paul",
+    ("bloomington",      "MN"): "Minneapolis-St. Paul",
+}
 
 def _msa_key(deal):
-    """City name before the first comma, title-cased — used as MSA group label."""
+    """Match city_state to a known MSA label; fall back to raw city name."""
     cs = deal.get("city_state", "")
-    return cs.split(",")[0].strip().title() if cs else "Other"
+    parts = cs.split(",")
+    city  = parts[0].strip().lower()
+    state = parts[1].strip().upper() if len(parts) > 1 else ""
+    return _CITY_TO_MSA.get((city, state)) or cs.split(",")[0].strip().title() or "Other"
 
 # ── SIDEBAR: DEAL PIPELINE ────────────────────────────────────────────────────
 
@@ -675,16 +931,19 @@ with st.sidebar:
                     st.caption(f"&nbsp;&nbsp;{meta}")
                 col1, col2 = st.columns([4, 1])
                 with col1:
+                    pdf_bytes = _fetch_pdf(deal["pdf_path"], deal["ts"])
                     st.download_button(
                         "⬇ Download",
-                        data=deal["pdf_out"],
+                        data=pdf_bytes or b"",
                         file_name=deal["filename"],
                         mime="application/pdf",
                         key=f"dl_{real_idx}",
                         use_container_width=True,
+                        disabled=pdf_bytes is None,
                     )
                 with col2:
                     if st.button("✕", key=f"rm_{real_idx}", help="Remove"):
+                        _db_delete_deal(deal["processed_file"], deal["pdf_path"])
                         st.session_state.pipeline.pop(real_idx)
                         st.rerun()
             st.divider()
@@ -698,89 +957,91 @@ whisper_input = st.text_input(
 
 uploaded_file = st.file_uploader("Upload Offering Memorandum (PDF)", type="pdf")
 
-if uploaded_file:
-    if uploaded_file.name != st.session_state.processed_file:
-        with st.spinner("Reading PDF..."):
-            pdf_bytes = uploaded_file.read()
+# Process a newly uploaded file — only runs when a new PDF is selected.
+if uploaded_file and uploaded_file.name != st.session_state.processed_file:
+    with st.spinner("Reading PDF..."):
+        pdf_bytes = uploaded_file.read()
 
-        max_bytes = CONFIG["MAX_FILE_SIZE_MB"] * 1024 * 1024
-        if len(pdf_bytes) > max_bytes:
-            st.error(f"File too large (max {CONFIG['MAX_FILE_SIZE_MB']} MB). Please upload a smaller PDF.")
+    max_bytes = CONFIG["MAX_FILE_SIZE_MB"] * 1024 * 1024
+    if len(pdf_bytes) > max_bytes:
+        st.error(f"File too large (max {CONFIG['MAX_FILE_SIZE_MB']} MB). Please upload a smaller PDF.")
+        st.stop()
+
+    api_key = st.secrets.get("API_KEY")
+    if not api_key:
+        st.error("API_KEY not configured. Please add it to your Streamlit secrets.")
+        st.stop()
+
+    serp_key = st.secrets.get("SERP_KEY", "")
+    maps_key = st.secrets.get("maps_key", "")
+    if not serp_key:
+        st.warning("SERP_KEY not set — property photos will be blank.")
+
+    with st.spinner("Reading PDF..."):
+        pdf_text = extract_text(pdf_bytes)
+
+    q_name, q_city = quick_extract(pdf_text)
+
+    with st.spinner("Analyzing deal and fetching images..."):
+        try:
+            with ThreadPoolExecutor(max_workers=5) as ex:
+                f_claude   = ex.submit(call_claude, pdf_text, api_key)
+                f_exterior = ex.submit(serp_image_search, f"{q_name} {q_city} apartment exterior building", serp_key)
+                f_amenity  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment amenity pool gym",  serp_key)
+                f_kitchen  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment kitchen interior",  serp_key)
+
+                data = f_claude.result()
+
+                # Map needs the accurate address from Claude — start after Claude resolves
+                f_map = ex.submit(get_map_image, data.get("address"), data.get("city_state"), maps_key)
+
+                img_results = {
+                    "exterior": f_exterior.result(),
+                    "amenity":  f_amenity.result(),
+                    "kitchen":  f_kitchen.result(),
+                    "map":      (f_map.result(), "ok"),
+                }
+        except json.JSONDecodeError as e:
+            st.error(f"Failed to parse Claude's response as JSON: {e}")
+            st.stop()
+        except Exception as e:
+            logger.exception("Pipeline error")
+            st.error(f"Error: {e}")
             st.stop()
 
-        api_key = st.secrets.get("API_KEY")
-        if not api_key:
-            st.error("API_KEY not configured. Please add it to your Streamlit secrets.")
+    for key in ("exterior", "amenity", "kitchen"):
+        img, status = img_results[key]
+        if status != "ok":
+            st.warning(f"{key}: {status}")
+
+    img_b64s = {
+        "exterior": img_to_b64(img_results["exterior"][0]),
+        "amenity":  img_to_b64(img_results["amenity"][0]),
+        "kitchen":  img_to_b64(img_results["kitchen"][0]),
+        "map":      img_to_b64(img_results["map"][0]),
+    }
+
+    st.session_state.processed_file = uploaded_file.name
+    st.session_state.data    = data
+    st.session_state.img_b64s = img_b64s
+    st.session_state.whisper = ""
+    deal_name  = data.get("deal_name") or "deal"
+    city_state = data.get("city_state") or ""
+    deal_slug  = re.sub(r"[^\w\s-]", "", deal_name).strip().replace(" ", "_")
+    city_slug  = re.sub(r"[^\w\s-]", "", city_state).strip().replace(" ", "_").replace(",", "")
+    st.session_state.filename = f"{deal_slug}_{city_slug}_1pager.pdf" if city_slug else f"{deal_slug}_1pager.pdf"
+
+    with st.spinner("Building PDF..."):
+        try:
+            st.session_state.pdf_out = build_pdf(st.session_state.data, st.session_state.img_b64s)
+            _pipeline_upsert()
+        except Exception as e:
+            logger.exception("PDF build error")
+            st.error(f"PDF build error: {e}")
             st.stop()
 
-        serp_key = st.secrets.get("SERP_KEY", "")
-        maps_key = st.secrets.get("maps_key", "")
-        if not serp_key:
-            st.warning("SERP_KEY not set — property photos will be blank.")
-
-        with st.spinner("Reading PDF..."):
-            pdf_text = extract_text(pdf_bytes)
-
-        q_name, q_city = quick_extract(pdf_text)
-
-        with st.spinner("Analyzing deal and fetching images..."):
-            try:
-                with ThreadPoolExecutor(max_workers=5) as ex:
-                    f_claude   = ex.submit(call_claude, pdf_text, api_key)
-                    f_exterior = ex.submit(serp_image_search, f"{q_name} {q_city} apartment exterior building", serp_key)
-                    f_amenity  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment amenity pool gym",  serp_key)
-                    f_kitchen  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment kitchen interior",  serp_key)
-
-                    data = f_claude.result()
-
-                    # Map needs the accurate address from Claude — start after Claude resolves
-                    f_map = ex.submit(get_map_image, data.get("address"), data.get("city_state"), maps_key)
-
-                    img_results = {
-                        "exterior": f_exterior.result(),
-                        "amenity":  f_amenity.result(),
-                        "kitchen":  f_kitchen.result(),
-                        "map":      (f_map.result(), "ok"),
-                    }
-            except json.JSONDecodeError as e:
-                st.error(f"Failed to parse Claude's response as JSON: {e}")
-                st.stop()
-            except Exception as e:
-                logger.exception("Pipeline error")
-                st.error(f"Error: {e}")
-                st.stop()
-
-        for key in ("exterior", "amenity", "kitchen"):
-            img, status = img_results[key]
-            if status != "ok":
-                st.warning(f"{key}: {status}")
-
-        img_b64s = {
-            "exterior": img_to_b64(img_results["exterior"][0]),
-            "amenity":  img_to_b64(img_results["amenity"][0]),
-            "kitchen":  img_to_b64(img_results["kitchen"][0]),
-            "map":      img_to_b64(img_results["map"][0]),
-        }
-
-        st.session_state.processed_file = uploaded_file.name
-        st.session_state.data    = data
-        st.session_state.img_b64s = img_b64s
-        st.session_state.whisper = ""
-        deal_name  = data.get("deal_name") or "deal"
-        city_state = data.get("city_state") or ""
-        deal_slug  = re.sub(r"[^\w\s-]", "", deal_name).strip().replace(" ", "_")
-        city_slug  = re.sub(r"[^\w\s-]", "", city_state).strip().replace(" ", "_").replace(",", "")
-        st.session_state.filename = f"{deal_slug}_{city_slug}_1pager.pdf" if city_slug else f"{deal_slug}_1pager.pdf"
-
-        with st.spinner("Building PDF..."):
-            try:
-                st.session_state.pdf_out = build_pdf(st.session_state.data, st.session_state.img_b64s)
-                _pipeline_upsert()
-            except Exception as e:
-                logger.exception("PDF build error")
-                st.error(f"PDF build error: {e}")
-                st.stop()
-
+# Show results whenever a deal is loaded — independent of the file uploader state.
+if st.session_state.pdf_out is not None:
     if whisper_input != st.session_state.whisper:
         with st.spinner("Rebuilding PDF with whisper price..."):
             try:
@@ -805,5 +1066,5 @@ if uploaded_file:
     with st.expander("View extracted data"):
         st.json(st.session_state.data)
 
-else:
+elif not uploaded_file:
     st.info("Upload an OM PDF to get started.")
