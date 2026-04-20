@@ -182,7 +182,8 @@ def google_image_search(query, search_key, search_cx, timeout=10):
         }
         resp = requests.get("https://www.googleapis.com/customsearch/v1", params=params, timeout=timeout)
         if resp.status_code != 200:
-            return None, f"API {resp.status_code}"
+            reason = resp.json().get("error", {}).get("message", resp.text[:300])
+            return None, f"API {resp.status_code}: {reason}"
         items = resp.json().get("items", [])
         if not items:
             return None, "no results returned"
