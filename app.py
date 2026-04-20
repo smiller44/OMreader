@@ -194,6 +194,42 @@ def serp_image_search(query, serp_key, timeout=10):
         logger.warning("serp_image_search failed: %s", e)
         return None, str(e)
 
+def serp_search_with_fallback(queries, serp_key):
+    """Try each query in order, returning the first successful result."""
+    last_status = "no queries provided"
+    for query in queries:
+        img, status = serp_image_search(query, serp_key)
+        if status == "ok":
+            return img, "ok"
+        last_status = status
+    return None, last_status
+
+def _image_queries(deal_name, address, city_state):
+    """Build ranked query lists for each photo slot using accurate Claude-extracted data."""
+    n  = deal_name  or ""
+    a  = address    or ""
+    cs = city_state or ""
+    return {
+        "exterior": [
+            f"{n} {cs} apartment exterior",
+            f"{n} apartments {cs}",
+            f"{a} {cs} multifamily",
+            f"{n} multifamily exterior",
+        ],
+        "amenity": [
+            f"{n} {cs} apartment amenity clubhouse",
+            f"{n} {cs} apartment pool gym",
+            f"{n} apartments amenity",
+            f"{n} multifamily amenity",
+        ],
+        "kitchen": [
+            f"{n} {cs} apartment kitchen",
+            f"{n} {cs} apartment unit interior",
+            f"{n} apartments kitchen interior",
+            f"{n} multifamily unit kitchen",
+        ],
+    }
+
 def get_map_image(address, city_state, maps_key):
     if not maps_key or not address: return None
     try:
@@ -980,33 +1016,35 @@ if uploaded_file and uploaded_file.name != st.session_state.processed_file:
     with st.spinner("Reading PDF..."):
         pdf_text = extract_text(pdf_bytes)
 
-    q_name, q_city = quick_extract(pdf_text)
-
-    with st.spinner("Analyzing deal and fetching images..."):
+    with st.spinner("Analyzing deal..."):
         try:
-            with ThreadPoolExecutor(max_workers=5) as ex:
-                f_claude   = ex.submit(call_claude, pdf_text, api_key)
-                f_exterior = ex.submit(serp_image_search, f"{q_name} {q_city} apartment exterior building", serp_key)
-                f_amenity  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment amenity pool gym",  serp_key)
-                f_kitchen  = ex.submit(serp_image_search, f"{q_name} {q_city} apartment kitchen interior",  serp_key)
+            data = call_claude(pdf_text, api_key)
+        except json.JSONDecodeError as e:
+            st.error(f"Failed to parse Claude's response as JSON: {e}")
+            st.stop()
+        except Exception as e:
+            logger.exception("Claude extraction error")
+            st.error(f"Error: {e}")
+            st.stop()
 
-                data = f_claude.result()
+    queries = _image_queries(data.get("deal_name"), data.get("address"), data.get("city_state"))
 
-                # Map needs the accurate address from Claude — start after Claude resolves
-                f_map = ex.submit(get_map_image, data.get("address"), data.get("city_state"), maps_key)
-
+    with st.spinner("Fetching images..."):
+        try:
+            with ThreadPoolExecutor(max_workers=4) as ex:
+                f_exterior = ex.submit(serp_search_with_fallback, queries["exterior"], serp_key)
+                f_amenity  = ex.submit(serp_search_with_fallback, queries["amenity"],  serp_key)
+                f_kitchen  = ex.submit(serp_search_with_fallback, queries["kitchen"],  serp_key)
+                f_map      = ex.submit(get_map_image, data.get("address"), data.get("city_state"), maps_key)
                 img_results = {
                     "exterior": f_exterior.result(),
                     "amenity":  f_amenity.result(),
                     "kitchen":  f_kitchen.result(),
                     "map":      (f_map.result(), "ok"),
                 }
-        except json.JSONDecodeError as e:
-            st.error(f"Failed to parse Claude's response as JSON: {e}")
-            st.stop()
         except Exception as e:
-            logger.exception("Pipeline error")
-            st.error(f"Error: {e}")
+            logger.exception("Image fetch error")
+            st.error(f"Image fetch error: {e}")
             st.stop()
 
     for key in ("exterior", "amenity", "kitchen"):
