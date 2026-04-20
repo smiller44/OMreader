@@ -1,6 +1,7 @@
 import subprocess, sys
 subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
 
+import logging
 import streamlit as st
 import pdfplumber
 import anthropic
@@ -9,12 +10,29 @@ import re
 import io
 import base64
 import requests
-import tempfile
 import os
 from datetime import datetime
 from PIL import Image
 from playwright.sync_api import sync_playwright
 from concurrent.futures import ThreadPoolExecutor
+
+logger = logging.getLogger(__name__)
+
+# ── CONFIG ────────────────────────────────────────────────────────────────────
+
+CONFIG = {
+    "PDF_VIEWPORT_WIDTH":  1100,
+    "PDF_VIEWPORT_HEIGHT": 850,
+    "PDF_SCALE":           0.80,
+    "SERP_RESULTS_LIMIT":  10,
+    "MIN_IMAGE_BYTES":     5000,
+    "MIN_IMAGE_WIDTH":     200,
+    "MIN_IMAGE_HEIGHT":    150,
+    "MAX_FILE_SIZE_MB":    50,
+    "MAX_PDF_TEXT_CHARS":  80_000,
+    "SENSITIVITY_RANGE":   [-0.10, -0.05, 0.0, 0.05, 0.10],
+    "CLAUDE_MODEL":        os.getenv("CLAUDE_MODEL", "claude-haiku-4-5-20251001"),
+}
 
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────────
 
@@ -120,13 +138,6 @@ def nv(val):
 
 def ns(val, fallback="—"): return nv(val) or fallback
 
-def b64(path):
-    if not path: return None
-    try:
-        with open(path, "rb") as f:
-            return "data:image/jpeg;base64," + base64.b64encode(f.read()).decode()
-    except: return None
-
 def trunc(s, n):
     s = str(s)
     return s if len(s) <= n else s[:n].rsplit(" ", 1)[0] + "…"
@@ -149,20 +160,21 @@ def photo(b, label):
     img = f'<img src="{b}">' if b else '<div class="nophoto"></div>'
     return f'<div class="ph">{img}<div class="phl">{label}</div></div>'
 
-# ── IMAGE SEARCH ──────────────────────────────────────────────────────────────
+# ── IMAGE FUNCTIONS ───────────────────────────────────────────────────────────
+
+_DL_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+    "Referer": "https://www.google.com/",
+}
 
 def serp_image_search(query, serp_key, timeout=10):
     if not serp_key: return None, "missing SERP_KEY"
-    _DL_HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
-        "Referer": "https://www.google.com/",
-    }
     try:
-        params = {"engine": "google_images", "q": query, "api_key": serp_key, "num": 10}
+        params = {"engine": "google_images", "q": query, "api_key": serp_key, "num": CONFIG["SERP_RESULTS_LIMIT"]}
         resp = requests.get("https://serpapi.com/search.json", params=params, timeout=timeout)
         if resp.status_code != 200:
-            return None, f"API {resp.status_code}: {resp.text[:500]}"
+            return None, f"API {resp.status_code}"
         results = resp.json().get("images_results", [])
         if not results:
             return None, "no results returned"
@@ -171,13 +183,15 @@ def serp_image_search(query, serp_key, timeout=10):
             if not url: continue
             try:
                 r = requests.get(url, timeout=7, headers=_DL_HEADERS)
-                if r.status_code == 200 and len(r.content) > 5000:
+                if r.status_code == 200 and len(r.content) > CONFIG["MIN_IMAGE_BYTES"]:
                     img = Image.open(io.BytesIO(r.content)).convert("RGB")
-                    if img.width > 200 and img.height > 150:
+                    if img.width > CONFIG["MIN_IMAGE_WIDTH"] and img.height > CONFIG["MIN_IMAGE_HEIGHT"]:
                         return img, "ok"
-            except: continue
+            except Exception:
+                continue
         return None, f"all {len(results)} downloads failed"
     except Exception as e:
+        logger.warning("serp_image_search failed: %s", e)
         return None, str(e)
 
 def get_map_image(address, city_state, maps_key):
@@ -189,14 +203,19 @@ def get_map_image(address, city_state, maps_key):
         r = requests.get("https://maps.googleapis.com/maps/api/staticmap", params=params, timeout=10)
         if r.status_code == 200:
             return Image.open(io.BytesIO(r.content)).convert("RGB")
-    except: pass
+    except Exception as e:
+        logger.warning("get_map_image failed: %s", e)
     return None
 
-def save_img(pil_img, path):
-    if pil_img:
-        pil_img.save(path, "JPEG", quality=88)
-        return path
-    return None
+def img_to_b64(pil_img):
+    """Convert a PIL image to an inline base64 data URI (no disk I/O)."""
+    if not pil_img:
+        return None
+    buf = io.BytesIO()
+    pil_img.save(buf, "JPEG", quality=88)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+# ── FINANCIAL HELPERS ─────────────────────────────────────────────────────────
 
 def parse_dollar(s):
     if not s: return None
@@ -205,8 +224,10 @@ def parse_dollar(s):
     if s.upper().endswith("B"):   mul = 1_000_000_000; s = s[:-1]
     elif s.upper().endswith("M"): mul = 1_000_000;     s = s[:-1]
     elif s.upper().endswith("K"): mul = 1_000;         s = s[:-1]
-    try:    return float(s) * mul
-    except: return None
+    try:
+        return float(s) * mul
+    except Exception:
+        return None
 
 def fmt_price(v):
     if v is None: return "—"
@@ -215,19 +236,124 @@ def fmt_price(v):
     if v >= 1_000:         return f"${v/1_000:.0f}K"
     return f"${v:,.0f}"
 
+# ── HTML SECTION BUILDERS ─────────────────────────────────────────────────────
+
+def _build_income_rows(data):
+    t12  = data.get("t12_basis") or "T-12"
+    stab = data.get("stab_label") or "Pro Forma"
+    t12rows = "".join([
+        kv(f"{t12} EGI",  nv(data.get("t12_egi"))),
+        kv(f"{t12} OpEx", f"{ns(data.get('t12_opex'))} ({ns(data.get('t12_opex_pct'))})" if nv(data.get("t12_opex")) else ""),
+        kv(f"{t12} NOI",  f"{ns(data.get('t12_noi'))} ({ns(data.get('t12_noi_margin'))} margin)" if nv(data.get("t12_noi")) else ""),
+    ])
+    stabrows = "".join([
+        kv(f"{stab} EGI",  nv(data.get("stab_egi"))),
+        kv(f"{stab} OpEx", f"{ns(data.get('stab_opex'))} ({ns(data.get('stab_opex_pct'))})" if nv(data.get("stab_opex")) else ""),
+        kv(f"{stab} NOI",  f"{ns(data.get('stab_noi'))} ({ns(data.get('stab_noi_margin'))} margin)" if nv(data.get("stab_noi")) else ""),
+    ])
+    return t12rows, stabrows
+
+def _build_capital_rows(data):
+    return "".join([
+        kv("Lender",    nv(data.get("lender"))),
+        kv("Type",      nv(data.get("debt_type"))),
+        kv("Term / IO", nv(data.get("term_io"))),
+        kv("Rate",      nv(data.get("rate"))),
+        kv("LTC / LTV", nv(data.get("ltc_ltv"))),
+        kv("Equity",    nv(data.get("equity"))),
+    ])
+
+def _build_returns_rows(data):
+    return "".join([
+        kv("Levered IRR", nv(data.get("levered_irr"))),
+        kv("Eq Multiple", nv(data.get("equity_multiple"))),
+        kv("Avg CoC",     nv(data.get("avg_coc"))),
+        kv("Exit Yr",     nv(data.get("exit_year"))),
+        kv("Exit Cap",    nv(data.get("exit_cap"))),
+    ])
+
+def _build_property_rows(data):
+    return "".join([
+        kv("Construction", nv(data.get("construction_type"))),
+        kv("Parking",      nv(data.get("parking"))),
+        kv("Stories",      nv(data.get("stories"))),
+        kv("Econ Occ",     nv(data.get("economic_occupancy"))),
+        kv("Amenities",    nv(data.get("amenities"))),
+        kv("Unit Mix",     nv(data.get("unit_mix"))),
+        kv("Retail",       nv(data.get("retail")) or "No retail"),
+    ])
+
+def _build_process_rows(data):
+    return "".join([
+        kv("Broker",   nv(data.get("broker"))),
+        kv("Guidance", nv(data.get("guidance"))),
+        kv("Bid Date", nv(data.get("bid_date"))),
+        kv("Tours",    nv(data.get("tour_status"))),
+        kv("Status",   nv(data.get("internal_status"))),
+        kv("Notes",    nv(data.get("notes"))),
+    ])
+
+def _build_stat_strip(data, whisper):
+    w_val = parse_dollar(whisper)
+    u_val = None
+    try:
+        u_val = int(str(data.get("units", "")).replace(",", ""))
+    except Exception:
+        pass
+    t12_val = parse_dollar(data.get("t12_noi"))
+    pf_val  = parse_dollar(data.get("stab_noi"))
+    noi_cap = t12_val or pf_val
+
+    stat_price = fmt_price(w_val) if w_val else ns(data.get("purchase_price"))
+    stat_ppu   = fmt_price(w_val / u_val) if (w_val and u_val) else ns(data.get("price_per_unit"))
+    stat_cap   = f"{noi_cap/w_val*100:.2f}%" if (w_val and noi_cap) else ns(data.get("going_in_cap_rate"))
+
+    stats = [
+        ("UNITS",           ns(data.get("units"))),
+        ("AVG SF",          ns(data.get("avg_sf"))),
+        ("YR BUILT / RENO", f"{ns(data.get('year_built'), '—')} / {ns(data.get('year_renovated'), '—')}"),
+        ("OCCUPANCY",       ns(data.get("physical_occupancy"))),
+        ("WHISPER PRICE" if w_val else "PURCHASE PRICE", stat_price),
+        ("PRICE / UNIT",    stat_ppu),
+        ("GOING-IN CAP",    stat_cap),
+    ]
+    stat_html = "".join(
+        f'<div class="stat"><div class="sl">{l}</div>'
+        f'<div class="sv{"" if v != "—" else " dim"}">{v}</div></div>'
+        for l, v in stats
+    )
+    return stat_html, w_val, u_val
+
+def _build_pricing_metrics(data, w_val, u_val):
+    pp_card  = nv(data.get("purchase_price")) or (fmt_price(w_val) if w_val else None)
+    ppu_card = nv(data.get("price_per_unit")) or (fmt_price(w_val / u_val) if (w_val and u_val) else None)
+    pp_label = "Whisper Price" if (w_val and not nv(data.get("purchase_price"))) else "Purchase Price"
+    capex_met  = met([(pp_label, pp_card), ("Price / Unit", ppu_card)])
+    capex_met += met([("Capex Total", nv(data.get("capex_total"))), ("Capex / Unit", nv(data.get("capex_per_unit")))])
+    rent_met   = met([
+        ("In-Place Rent",  nv(data.get("in_place_rent"))),
+        ("Pro Forma Rent", nv(data.get("pro_forma_rent"))),
+        ("Loss-to-Lease",  nv(data.get("loss_to_lease"))),
+    ])
+    return capex_met, rent_met
+
+# ── SENSITIVITY TABLE ─────────────────────────────────────────────────────────
+
 def build_sensitivity(whisper_str, units_str, t12_noi_str, pf_noi_str):
     whisper = parse_dollar(whisper_str)
     if not whisper: return ""
-    t12   = parse_dollar(t12_noi_str)
-    pf    = parse_dollar(pf_noi_str)
-    try:  units = int(str(units_str).replace(",", ""))
-    except: units = None
+    t12 = parse_dollar(t12_noi_str)
+    pf  = parse_dollar(pf_noi_str)
+    try:
+        units = int(str(units_str).replace(",", ""))
+    except Exception:
+        units = None
 
     whisper_label = fmt_price(whisper)
     ppu_label     = f" ({fmt_price(whisper/units)}/unit)" if units else ""
 
     rows = ""
-    for pct in [-0.10, -0.05, 0.0, 0.05, 0.10]:
+    for pct in CONFIG["SENSITIVITY_RANGE"]:
         price  = whisper * (1 + pct)
         ppu    = fmt_price(price / units) if units else "—"
         t12cap = f"{t12/price*100:.2f}%" if t12 else "—"
@@ -247,149 +373,109 @@ def build_sensitivity(whisper_str, units_str, t12_noi_str, pf_noi_str):
   </table>
 </div>"""
 
+# ── HTML CSS ──────────────────────────────────────────────────────────────────
+
+# width: 1100px must match CONFIG["PDF_VIEWPORT_WIDTH"]
+_HTML_CSS = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1100px; font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.4; }
+
+.hdr { background: #111827; padding: 13px 22px 11px; }
+.deal-name { font-size: 22px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 3px; }
+.deal-sub  { font-size: 11px; color: #9ca3af; margin-bottom: 2px; }
+.deal-badges { font-size: 9.5px; color: #4b5563; font-style: italic; }
+
+.strip { background: #1f2937; display: flex; border-bottom: 1px solid #111827; }
+.stat { flex: 1; padding: 8px 12px; border-right: 1px solid #111827; }
+.stat:last-child { border-right: none; }
+.sl { font-size: 7px; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }
+.sv { font-size: 12px; font-weight: 700; color: #f3f4f6; }
+.dim { color: #374151 !important; }
+
+.body { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 2px solid #e5e7eb; }
+.col-l { padding: 12px 16px; background: #ffffff; border-right: 2px solid #e5e7eb; }
+.col-r { padding: 12px 16px; background: #f9fafb; }
+
+.sec { font-size: 8px; font-weight: 700; color: #1d4ed8; text-transform: uppercase; letter-spacing: .12em;
+       padding-bottom: 4px; border-bottom: 2px solid #1d4ed8; margin-bottom: 8px; margin-top: 12px; }
+.sec:first-child { margin-top: 0; }
+
+ul { list-style: none; padding: 0; margin: 0; }
+li { display: flex; gap: 6px; margin-bottom: 5px; font-size: 10px; line-height: 1.4; color: #1f2937; }
+li::before { content: "–"; color: #9ca3af; flex-shrink: 0; }
+
+table { width: 100%; border-collapse: collapse; }
+.k { font-size: 9.5px; color: #6b7280; font-weight: 500; width: 36%; padding: 2px 8px 2px 0; vertical-align: top; white-space: nowrap; }
+.v { font-size: 10px; color: #111827; padding: 2px 0; vertical-align: top; }
+
+.mr { display: flex; gap: 7px; margin-bottom: 8px; }
+.mc { flex: 1; background: #ffffff; border: 1.5px solid #e5e7eb; border-radius: 5px; padding: 6px 10px; }
+.ml { font-size: 7px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }
+.mv { font-size: 14px; font-weight: 700; color: #111827; }
+
+.divider { border-top: 1px solid #e5e7eb; margin: 8px 0; }
+
+.sens-wrap { padding: 7px 16px 9px; background: #ffffff; border-bottom: 2px solid #e5e7eb; }
+.sens-tbl { width: 100%; border-collapse: collapse; }
+.sens-tbl thead tr { background: #f3f4f6; }
+.sens-tbl th { padding: 3px 10px; text-align: left; font-size: 7px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #e5e7eb; }
+.sens-tbl td { padding: 3px 10px; font-size: 10px; color: #111827; border-bottom: 1px solid #f3f4f6; }
+.sens-tbl .sc { color: #6b7280; font-size: 9px; }
+.sens-hl { background: #eff6ff !important; }
+.sens-hl td { color: #1d4ed8 !important; font-weight: 700; }
+
+.mid { display: grid; grid-template-columns: 1fr 1fr; background: #f3f4f6; border-bottom: 2px solid #e5e7eb; }
+.mid .col-l { background: #f3f4f6; border-right: 2px solid #e5e7eb; }
+.mid .col-r { background: #f3f4f6; }
+
+.photos { display: grid; grid-template-columns: repeat(4, 1fr); height: 120px; border-bottom: 2px solid #e5e7eb; }
+.ph { position: relative; overflow: hidden; background: #d1d5db; border-right: 2px solid #ffffff; }
+.ph:last-child { border-right: none; }
+.ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.nophoto { width: 100%; height: 100%; background: #d1d5db; }
+.phl { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,.7));
+       color: #ffffff; font-size: 8.5px; font-weight: 700; text-align: center;
+       padding: 14px 0 5px; text-transform: uppercase; letter-spacing: .09em; }
+
+.bot { display: grid; grid-template-columns: repeat(3, 1fr); background: #f3f4f6; }
+.bot .col-l { background: #f3f4f6; border-right: 2px solid #e5e7eb; }
+.bot .col-m { padding: 12px 14px; background: #f3f4f6; border-right: 2px solid #e5e7eb; }
+.bot .col-last { padding: 12px 14px; background: #f3f4f6; }
+"""
+
 # ── HTML BUILDER ──────────────────────────────────────────────────────────────
 
-def build_html(data, img_paths, whisper=""):  # noqa: C901
-    E = b64(img_paths.get("exterior"))
-    A = b64(img_paths.get("amenity"))
-    K = b64(img_paths.get("kitchen"))
-    M = b64(img_paths.get("map"))
+def build_html(data, img_b64s, whisper=""):
+    E = img_b64s.get("exterior")
+    A = img_b64s.get("amenity")
+    K = img_b64s.get("kitchen")
+    M = img_b64s.get("map")
 
-    t12  = data.get("t12_basis") or "T-12"
-    stab = data.get("stab_label") or "Pro Forma"
+    t12rows, stabrows = _build_income_rows(data)
+    caprows  = _build_capital_rows(data)
+    retrows  = _build_returns_rows(data)
+    proprows = _build_property_rows(data)
+    procrows = _build_process_rows(data)
 
-    t12rows = "".join([
-        kv(f"{t12} EGI",  nv(data.get("t12_egi"))),
-        kv(f"{t12} OpEx", f"{ns(data.get('t12_opex'))} ({ns(data.get('t12_opex_pct'))})" if nv(data.get("t12_opex")) else ""),
-        kv(f"{t12} NOI",  f"{ns(data.get('t12_noi'))} ({ns(data.get('t12_noi_margin'))} margin)" if nv(data.get("t12_noi")) else ""),
-    ])
-    stabrows = "".join([
-        kv(f"{stab} EGI",  nv(data.get("stab_egi"))),
-        kv(f"{stab} OpEx", f"{ns(data.get('stab_opex'))} ({ns(data.get('stab_opex_pct'))})" if nv(data.get("stab_opex")) else ""),
-        kv(f"{stab} NOI",  f"{ns(data.get('stab_noi'))} ({ns(data.get('stab_noi_margin'))} margin)" if nv(data.get("stab_noi")) else ""),
-    ])
-    caprows  = "".join([kv("Lender", nv(data.get("lender"))), kv("Type", nv(data.get("debt_type"))),
-                        kv("Term / IO", nv(data.get("term_io"))), kv("Rate", nv(data.get("rate"))),
-                        kv("LTC / LTV", nv(data.get("ltc_ltv"))), kv("Equity", nv(data.get("equity")))])
-    retrows  = "".join([kv("Levered IRR", nv(data.get("levered_irr"))), kv("Eq Multiple", nv(data.get("equity_multiple"))),
-                        kv("Avg CoC", nv(data.get("avg_coc"))), kv("Exit Yr", nv(data.get("exit_year"))),
-                        kv("Exit Cap", nv(data.get("exit_cap")))])
-    proprows = "".join([kv("Construction", nv(data.get("construction_type"))), kv("Parking", nv(data.get("parking"))),
-                        kv("Stories", nv(data.get("stories"))), kv("Econ Occ", nv(data.get("economic_occupancy"))),
-                        kv("Amenities", nv(data.get("amenities"))), kv("Unit Mix", nv(data.get("unit_mix"))),
-                        kv("Retail", nv(data.get("retail")) or "No retail")])
-    procrows = "".join([kv("Broker", nv(data.get("broker"))), kv("Guidance", nv(data.get("guidance"))),
-                        kv("Bid Date", nv(data.get("bid_date"))), kv("Tours", nv(data.get("tour_status"))),
-                        kv("Status", nv(data.get("internal_status"))), kv("Notes", nv(data.get("notes")))])
+    stat_html, w_val, u_val = _build_stat_strip(data, whisper)
+    capex_met, rent_met     = _build_pricing_metrics(data, w_val, u_val)
 
-    parts  = " · ".join(x for x in [data.get("address"), data.get("city_state"), data.get("submarket"),
-                                      f"Class {data['asset_class']}" if data.get("asset_class") else None] if x)
-    badges = " &nbsp;|&nbsp; ".join(x for x in [data.get("deal_type"), data.get("deal_status"),
-                                                  data.get("broker"), "All figures per OM · Not underwritten"] if x)
-    w_val   = parse_dollar(whisper)
-    u_val   = None
-    try:    u_val = int(str(data.get("units", "")).replace(",", ""))
-    except: pass
-    t12_val = parse_dollar(data.get("t12_noi"))
-    pf_val  = parse_dollar(data.get("stab_noi"))
+    parts  = " · ".join(x for x in [
+        data.get("address"), data.get("city_state"), data.get("submarket"),
+        f"Class {data['asset_class']}" if data.get("asset_class") else None,
+    ] if x)
+    badges = " &nbsp;|&nbsp; ".join(x for x in [
+        data.get("deal_type"), data.get("deal_status"),
+        data.get("broker"), "All figures per OM · Not underwritten",
+    ] if x)
 
-    stat_price = fmt_price(w_val)                          if w_val else ns(data.get("purchase_price"))
-    stat_ppu   = fmt_price(w_val / u_val)                  if (w_val and u_val) else ns(data.get("price_per_unit"))
-    noi_cap    = t12_val or pf_val
-    stat_cap   = f"{noi_cap/w_val*100:.2f}%"              if (w_val and noi_cap) else ns(data.get("going_in_cap_rate"))
-
-    stats  = [("UNITS", ns(data.get("units"))), ("AVG SF", ns(data.get("avg_sf"))),
-              ("YR BUILT / RENO", f"{ns(data.get('year_built'),'—')} / {ns(data.get('year_renovated'),'—')}"),
-              ("OCCUPANCY", ns(data.get("physical_occupancy"))),
-              ("WHISPER PRICE" if w_val else "PURCHASE PRICE", stat_price),
-              ("PRICE / UNIT",  stat_ppu),
-              ("GOING-IN CAP",  stat_cap)]
-    stat_html = "".join(
-        f'<div class="stat"><div class="sl">{l}</div>'
-        f'<div class="sv{"" if v != "—" else " dim"}">{v}</div></div>'
-        for l, v in stats
-    )
-
-    pp_card  = nv(data.get("purchase_price")) or (fmt_price(w_val) if w_val else None)
-    ppu_card = nv(data.get("price_per_unit")) or (fmt_price(w_val / u_val) if (w_val and u_val) else None)
-    pp_label = "Whisper Price" if (w_val and not nv(data.get("purchase_price"))) else "Purchase Price"
-    capex_met  = met([(pp_label, pp_card), ("Price / Unit", ppu_card)])
-    capex_met += met([("Capex Total", nv(data.get("capex_total"))), ("Capex / Unit", nv(data.get("capex_per_unit")))])
-    rent_met   = met([("In-Place Rent", nv(data.get("in_place_rent"))),
-                      ("Pro Forma Rent", nv(data.get("pro_forma_rent"))),
-                      ("Loss-to-Lease", nv(data.get("loss_to_lease")))])
     stab_block = f'<div class="divider"></div><table>{stabrows}</table>' if stabrows else ""
     ret_block  = f'<div class="divider"></div><table>{retrows}</table>' if retrows else ""
     tax_block  = f'<div class="divider"></div><table>{kv("Tax Notes", nv(data.get("tax_notes")))}</table>' if nv(data.get("tax_notes")) else ""
     sens_block = build_sensitivity(whisper, data.get("units"), data.get("t12_noi"), data.get("stab_noi"))
 
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-* {{ box-sizing: border-box; margin: 0; padding: 0; }}
-html, body {{ width: 1100px; font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.4; }}
-
-.hdr {{ background: #111827; padding: 13px 22px 11px; }}
-.deal-name {{ font-size: 22px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 3px; }}
-.deal-sub  {{ font-size: 11px; color: #9ca3af; margin-bottom: 2px; }}
-.deal-badges {{ font-size: 9.5px; color: #4b5563; font-style: italic; }}
-
-.strip {{ background: #1f2937; display: flex; border-bottom: 1px solid #111827; }}
-.stat {{ flex: 1; padding: 8px 12px; border-right: 1px solid #111827; }}
-.stat:last-child {{ border-right: none; }}
-.sl {{ font-size: 7px; font-weight: 600; color: #4b5563; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }}
-.sv {{ font-size: 12px; font-weight: 700; color: #f3f4f6; }}
-.dim {{ color: #374151 !important; }}
-
-.body {{ display: grid; grid-template-columns: 1fr 1fr; border-bottom: 2px solid #e5e7eb; }}
-.col-l {{ padding: 12px 16px; background: #ffffff; border-right: 2px solid #e5e7eb; }}
-.col-r {{ padding: 12px 16px; background: #f9fafb; }}
-
-.sec {{ font-size: 8px; font-weight: 700; color: #1d4ed8; text-transform: uppercase; letter-spacing: .12em;
-        padding-bottom: 4px; border-bottom: 2px solid #1d4ed8; margin-bottom: 8px; margin-top: 12px; }}
-.sec:first-child {{ margin-top: 0; }}
-
-ul {{ list-style: none; padding: 0; margin: 0; }}
-li {{ display: flex; gap: 6px; margin-bottom: 5px; font-size: 10px; line-height: 1.4; color: #1f2937; }}
-li::before {{ content: "–"; color: #9ca3af; flex-shrink: 0; }}
-
-table {{ width: 100%; border-collapse: collapse; }}
-.k {{ font-size: 9.5px; color: #6b7280; font-weight: 500; width: 36%; padding: 2px 8px 2px 0; vertical-align: top; white-space: nowrap; }}
-.v {{ font-size: 10px; color: #111827; padding: 2px 0; vertical-align: top; }}
-
-.mr {{ display: flex; gap: 7px; margin-bottom: 8px; }}
-.mc {{ flex: 1; background: #ffffff; border: 1.5px solid #e5e7eb; border-radius: 5px; padding: 6px 10px; }}
-.ml {{ font-size: 7px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 2px; }}
-.mv {{ font-size: 14px; font-weight: 700; color: #111827; }}
-
-.divider {{ border-top: 1px solid #e5e7eb; margin: 8px 0; }}
-
-.sens-wrap {{ padding: 7px 16px 9px; background: #ffffff; border-bottom: 2px solid #e5e7eb; }}
-.sens-tbl {{ width: 100%; border-collapse: collapse; }}
-.sens-tbl thead tr {{ background: #f3f4f6; }}
-.sens-tbl th {{ padding: 3px 10px; text-align: left; font-size: 7px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #e5e7eb; }}
-.sens-tbl td {{ padding: 3px 10px; font-size: 10px; color: #111827; border-bottom: 1px solid #f3f4f6; }}
-.sens-tbl .sc {{ color: #6b7280; font-size: 9px; }}
-.sens-hl {{ background: #eff6ff !important; }}
-.sens-hl td {{ color: #1d4ed8 !important; font-weight: 700; }}
-
-.mid {{ display: grid; grid-template-columns: 1fr 1fr; background: #f3f4f6; border-bottom: 2px solid #e5e7eb; }}
-.mid .col-l {{ background: #f3f4f6; border-right: 2px solid #e5e7eb; }}
-.mid .col-r {{ background: #f3f4f6; }}
-
-.photos {{ display: grid; grid-template-columns: repeat(4, 1fr); height: 120px; border-bottom: 2px solid #e5e7eb; }}
-.ph {{ position: relative; overflow: hidden; background: #d1d5db; border-right: 2px solid #ffffff; }}
-.ph:last-child {{ border-right: none; }}
-.ph img {{ width: 100%; height: 100%; object-fit: cover; display: block; }}
-.nophoto {{ width: 100%; height: 100%; background: #d1d5db; }}
-.phl {{ position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,.7));
-        color: #ffffff; font-size: 8.5px; font-weight: 700; text-align: center;
-        padding: 14px 0 5px; text-transform: uppercase; letter-spacing: .09em; }}
-
-.bot {{ display: grid; grid-template-columns: repeat(3, 1fr); background: #f3f4f6; }}
-.bot .col-l {{ background: #f3f4f6; border-right: 2px solid #e5e7eb; }}
-.bot .col-m {{ padding: 12px 14px; background: #f3f4f6; border-right: 2px solid #e5e7eb; }}
-.bot .col-last {{ padding: 12px 14px; background: #f3f4f6; }}
-</style></head><body>
+<style>{_HTML_CSS}</style></head><body>
 
 <div class="hdr">
   <div class="deal-name">{ns(data.get("deal_name"), "Deal")}</div>
@@ -463,17 +549,17 @@ _CHROMIUM_ARGS = [
     "--disable-setuid-sandbox",
 ]
 
-def build_pdf(data, img_paths, whisper=""):
-    html = build_html(data, img_paths, whisper)
+def build_pdf(data, img_b64s, whisper=""):
+    html = build_html(data, img_b64s, whisper)
     with sync_playwright() as p:
         browser = p.chromium.launch(args=_CHROMIUM_ARGS)
-        page    = browser.new_page(viewport={"width": 1100, "height": 850})
+        page    = browser.new_page(viewport={"width": CONFIG["PDF_VIEWPORT_WIDTH"], "height": CONFIG["PDF_VIEWPORT_HEIGHT"]})
         page.set_content(html, wait_until="load")
         pdf = page.pdf(
             format="Letter",
             print_background=True,
             margin={"top": "0", "right": "0", "bottom": "0", "left": "0"},
-            scale=0.80,
+            scale=CONFIG["PDF_SCALE"],
         )
         browser.close()
     return pdf
@@ -488,17 +574,27 @@ def extract_text(file_bytes):
             if t: text += t + "\n"
     return text
 
+def validate_deal_data(data):
+    if not isinstance(data, dict):
+        raise ValueError("Claude returned a non-dict response")
+    if data.get("asset_class") not in ("A", "B", "C", None):
+        data["asset_class"] = None
+    for field in ("key_risks", "why_this_works", "investment_thesis", "business_plan", "location_bullets", "capex_bullets"):
+        if not isinstance(data.get(field), list):
+            data[field] = []
+    return data
+
 def call_claude(pdf_text, api_key):
     client = anthropic.Anthropic(api_key=api_key)
     msg = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+        model=CONFIG["CLAUDE_MODEL"],
         max_tokens=4000,
-        messages=[{"role": "user", "content": EXTRACTION_PROMPT + pdf_text[:80000]}]
+        messages=[{"role": "user", "content": EXTRACTION_PROMPT + pdf_text[:CONFIG["MAX_PDF_TEXT_CHARS"]]}]
     )
     raw = msg.content[0].text.strip()
     raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
-    return json.loads(raw)
+    return validate_deal_data(json.loads(raw))
 
 def quick_extract(text):
     """Grab a rough deal name + city from raw PDF text for parallel image searches."""
@@ -519,7 +615,7 @@ if "processed_file" not in st.session_state:
     st.session_state.pdf_out = None
     st.session_state.filename = None
     st.session_state.data = None
-    st.session_state.img_paths = {}
+    st.session_state.img_b64s = {}
     st.session_state.whisper = ""
     st.session_state.pipeline = []
 
@@ -557,7 +653,6 @@ with st.sidebar:
         st.caption(f"{n} deal{'s' if n != 1 else ''}")
         st.divider()
 
-        # Group by MSA; order groups by most recent deal within each group
         groups: dict[str, list] = {}
         for idx, deal in enumerate(st.session_state.pipeline):
             key = _msa_key(deal)
@@ -565,14 +660,14 @@ with st.sidebar:
 
         sorted_groups = sorted(
             groups.items(),
-            key=lambda kv: max(d["ts"] for _, d in kv[1]),
+            key=lambda g: max(d["ts"] for _, d in g[1]),
             reverse=True,
         )
 
         for msa, entries in sorted_groups:
             st.markdown(f"**{msa.upper()}**")
             for real_idx, deal in sorted(entries, key=lambda x: x[1]["ts"], reverse=True):
-                units_str = f"{deal['units']} units" if deal["units"] else ""
+                units_str   = f"{deal['units']} units" if deal["units"] else ""
                 whisper_str = deal["whisper"] if deal["whisper"] else ""
                 meta = "  ·  ".join(x for x in [units_str, whisper_str] if x)
                 st.markdown(f"&nbsp;&nbsp;{deal['deal_name']}")
@@ -607,18 +702,26 @@ if uploaded_file:
     if uploaded_file.name != st.session_state.processed_file:
         with st.spinner("Reading PDF..."):
             pdf_bytes = uploaded_file.read()
-            pdf_text  = extract_text(pdf_bytes)
 
-        # Extract all secrets in main thread before spawning workers
-        api_key  = st.secrets["API_KEY"]
+        max_bytes = CONFIG["MAX_FILE_SIZE_MB"] * 1024 * 1024
+        if len(pdf_bytes) > max_bytes:
+            st.error(f"File too large (max {CONFIG['MAX_FILE_SIZE_MB']} MB). Please upload a smaller PDF.")
+            st.stop()
+
+        api_key = st.secrets.get("API_KEY")
+        if not api_key:
+            st.error("API_KEY not configured. Please add it to your Streamlit secrets.")
+            st.stop()
+
         serp_key = st.secrets.get("SERP_KEY", "")
         maps_key = st.secrets.get("maps_key", "")
         if not serp_key:
             st.warning("SERP_KEY not set — property photos will be blank.")
 
-        # Quick heuristic name/city so image searches can fire before Claude finishes
+        with st.spinner("Reading PDF..."):
+            pdf_text = extract_text(pdf_bytes)
+
         q_name, q_city = quick_extract(pdf_text)
-        tmpdir = tempfile.mkdtemp()
 
         with st.spinner("Analyzing deal and fetching images..."):
             try:
@@ -640,23 +743,28 @@ if uploaded_file:
                         "map":      (f_map.result(), "ok"),
                     }
             except json.JSONDecodeError as e:
-                st.error(f"JSON parse error: {e}")
+                st.error(f"Failed to parse Claude's response as JSON: {e}")
                 st.stop()
             except Exception as e:
+                logger.exception("Pipeline error")
                 st.error(f"Error: {e}")
                 st.stop()
 
-        img_paths = {}
         for key in ("exterior", "amenity", "kitchen"):
             img, status = img_results[key]
             if status != "ok":
                 st.warning(f"{key}: {status}")
-            img_paths[key] = save_img(img, os.path.join(tmpdir, f"{key}.jpg"))
-        img_paths["map"] = save_img(img_results["map"][0], os.path.join(tmpdir, "map.jpg"))
+
+        img_b64s = {
+            "exterior": img_to_b64(img_results["exterior"][0]),
+            "amenity":  img_to_b64(img_results["amenity"][0]),
+            "kitchen":  img_to_b64(img_results["kitchen"][0]),
+            "map":      img_to_b64(img_results["map"][0]),
+        }
 
         st.session_state.processed_file = uploaded_file.name
-        st.session_state.data = data
-        st.session_state.img_paths = img_paths
+        st.session_state.data    = data
+        st.session_state.img_b64s = img_b64s
         st.session_state.whisper = ""
         deal_name  = data.get("deal_name") or "deal"
         city_state = data.get("city_state") or ""
@@ -666,9 +774,10 @@ if uploaded_file:
 
         with st.spinner("Building PDF..."):
             try:
-                st.session_state.pdf_out = build_pdf(st.session_state.data, st.session_state.img_paths)
+                st.session_state.pdf_out = build_pdf(st.session_state.data, st.session_state.img_b64s)
                 _pipeline_upsert()
             except Exception as e:
+                logger.exception("PDF build error")
                 st.error(f"PDF build error: {e}")
                 st.stop()
 
@@ -676,11 +785,12 @@ if uploaded_file:
         with st.spinner("Rebuilding PDF with whisper price..."):
             try:
                 st.session_state.pdf_out = build_pdf(
-                    st.session_state.data, st.session_state.img_paths, whisper_input
+                    st.session_state.data, st.session_state.img_b64s, whisper_input
                 )
                 st.session_state.whisper = whisper_input
                 _pipeline_upsert()
             except Exception as e:
+                logger.exception("PDF rebuild error")
                 st.error(f"PDF build error: {e}")
 
     st.success("Done.")
