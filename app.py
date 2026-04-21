@@ -243,7 +243,7 @@ _SS_DEFAULTS = {
     "pipeline": None,
     # 1-pager tab
     "pg_key": None, "pg_pdf": None, "pg_data": None,
-    "pg_t12": None, "pg_imgs": {}, "pg_whisper": "", "pg_filename": None,
+    "pg_imgs": {}, "pg_whisper": "", "pg_filename": None,
     # quickval tab
     "qv_key": None, "qv_excel": None, "qv_data": None,
     "qv_t12": None, "qv_whisper": "", "qv_filename": None,
@@ -345,34 +345,9 @@ tab_pg, tab_qv = st.tabs(["1-Pager Generator", "QuickVal Generator"])
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with tab_pg:
-    col_t12, col_om = st.columns(2)
-    with col_t12:
-        _upload_label("T12 Operating Statement", required=True)
-        pg_t12_file = st.file_uploader("T12", type=["xlsx", "xls"],
-                                       label_visibility="collapsed", key="pg_t12_upload")
-    with col_om:
-        _upload_label("Offering Memorandum", required=False)
-        pg_om_file = st.file_uploader("OM", type="pdf",
-                                      label_visibility="collapsed", key="pg_om_upload")
-
-    # Manual form when no OM
-    manual_data: dict = {}
-    if pg_t12_file and not pg_om_file:
-        with st.expander("Deal Details — required when no OM", expanded=True):
-            c1, c2 = st.columns(2)
-            with c1:
-                manual_data["deal_name"]  = st.text_input("Deal Name", key="pg_deal_name")
-                manual_data["address"]    = st.text_input("Street Address", key="pg_address")
-                manual_data["city_state"] = st.text_input("City, State", key="pg_city_state")
-                manual_data["submarket"]  = st.text_input("Submarket", key="pg_submarket")
-                manual_data["year_built"] = st.text_input("Year Built", key="pg_year_built")
-            with c2:
-                manual_data["purchase_price"]    = st.text_input("Purchase Price", key="pg_price")
-                manual_data["broker"]            = st.selectbox("Broker", [""] + BROKERAGE_OPTIONS, key="pg_broker")
-                manual_data["asset_class"]       = st.selectbox("Asset Class", ["", "A", "B", "C"], key="pg_asset")
-                manual_data["deal_type"]         = st.text_input("Deal Type", key="pg_deal_type")
-                manual_data["going_in_cap_rate"] = st.text_input("Going-In Cap Rate", key="pg_cap")
-            manual_data = {k: v for k, v in manual_data.items() if v}
+    _upload_label("Offering Memorandum", required=True)
+    pg_om_file = st.file_uploader("OM", type="pdf",
+                                  label_visibility="collapsed", key="pg_om_upload")
 
     st.markdown('<div class="whisper-wrap">', unsafe_allow_html=True)
     st.markdown('<div class="whisper-label">Whisper / Guidance Price</div>', unsafe_allow_html=True)
@@ -381,63 +356,33 @@ with tab_pg:
                                 label_visibility="collapsed", key="pg_whisper_field")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    pg_upload_key = "|".join(f.name for f in [pg_t12_file, pg_om_file] if f)
+    pg_upload_key = pg_om_file.name if pg_om_file else ""
 
-    if pg_t12_file and pg_upload_key != st.session_state.pg_key:
+    if pg_om_file and pg_upload_key != st.session_state.pg_key:
 
         api_key  = st.secrets.get("API_KEY", "")
         serp_key = st.secrets.get("SERP_KEY", "")
         maps_key = st.secrets.get("maps_key", "")
 
-        with st.spinner("Parsing T12..."):
+        if not api_key:
+            st.error("API_KEY not configured.")
+            st.stop()
+
+        om_bytes = pg_om_file.read()
+        if len(om_bytes) > CONFIG["MAX_FILE_SIZE_MB"] * 1024 * 1024:
+            st.error(f"OM too large (max {CONFIG['MAX_FILE_SIZE_MB']} MB).")
+            st.stop()
+
+        with st.spinner("Analyzing OM..."):
             try:
-                t12_parsed = parse_t12(pg_t12_file.read())
+                data = call_claude(extract_text(om_bytes), api_key)
+            except json.JSONDecodeError as e:
+                st.error(f"Failed to parse Claude's OM response: {e}")
+                st.stop()
             except Exception as e:
-                logger.exception("T12 parse error")
-                st.error(f"T12 parse error: {e}")
+                logger.exception("Claude extraction error")
+                st.error(f"OM analysis error: {e}")
                 st.stop()
-
-        data: dict = {
-            "t12_basis":          "T-12",
-            "t12_egi":            t12_parsed["summary"]["t12_egi"],
-            "t12_opex":           t12_parsed["summary"]["t12_opex"],
-            "t12_opex_pct":       t12_parsed["summary"]["t12_opex_pct"],
-            "t12_noi":            t12_parsed["summary"]["t12_noi"],
-            "t12_noi_margin":     t12_parsed["summary"]["t12_noi_margin"],
-            "loss_to_lease":      t12_parsed["summary"]["loss_to_lease"],
-            "physical_occupancy": t12_parsed["summary"].get("physical_occupancy"),
-        }
-
-        if pg_om_file:
-            if not api_key:
-                st.error("API_KEY not configured.")
-                st.stop()
-            om_bytes = pg_om_file.read()
-            if len(om_bytes) > CONFIG["MAX_FILE_SIZE_MB"] * 1024 * 1024:
-                st.error(f"OM too large (max {CONFIG['MAX_FILE_SIZE_MB']} MB).")
-                st.stop()
-            with st.spinner("Analyzing OM..."):
-                try:
-                    om_data = call_claude(extract_text(om_bytes), api_key)
-                    _t12_keys = {k for k in data if k.startswith("t12_") or k.startswith("stab_")}
-                    for k, v in om_data.items():
-                        if k not in _t12_keys and v is not None:
-                            data.setdefault(k, v)
-                    for k in ("investment_thesis", "business_plan", "key_risks", "why_this_works",
-                              "location_bullets", "capex_bullets"):
-                        if om_data.get(k):
-                            data[k] = om_data[k]
-                except json.JSONDecodeError as e:
-                    st.error(f"Failed to parse Claude's OM response: {e}")
-                    st.stop()
-                except Exception as e:
-                    logger.exception("Claude extraction error")
-                    st.error(f"OM analysis error: {e}")
-                    st.stop()
-        else:
-            for k, v in manual_data.items():
-                if v:
-                    data.setdefault(k, v)
 
         if not serp_key:
             st.warning("SERP_KEY not set — property photos will be blank.")
@@ -475,7 +420,6 @@ with tab_pg:
         st.session_state.pg_key      = pg_upload_key
         st.session_state.pg_pdf      = pdf_out
         st.session_state.pg_data     = data
-        st.session_state.pg_t12      = t12_parsed
         st.session_state.pg_imgs     = img_b64s
         st.session_state.pg_whisper  = pg_whisper
         st.session_state.pg_filename = filename
@@ -505,8 +449,8 @@ with tab_pg:
         )
         with st.expander("View extracted data"):
             st.json(st.session_state.pg_data)
-    elif not pg_t12_file:
-        st.info("Upload a T12 Operating Statement to get started.")
+    elif not pg_om_file:
+        st.info("Upload an Offering Memorandum to get started.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
