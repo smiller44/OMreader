@@ -27,7 +27,7 @@ def _write_cell(ws, row: int, col: int, value):
     ws.cell(row, col).value = value
 
 
-def _fill_proforma_overview(ws, data: dict, whisper: str = ""):
+def _fill_proforma_overview(ws, data: dict, whisper: str = "", mkt: dict | None = None):
     """Fill the Property Overview and Purchase Summary section (col C)."""
     # Row → (col C value)
     fields = {
@@ -55,9 +55,11 @@ def _fill_proforma_overview(ws, data: dict, whisper: str = ""):
     if exit_cap:
         _write_cell(ws, 29, 3, exit_cap / 100 if exit_cap > 1 else exit_cap)
 
-    # Proforma assumptions
-    _write_cell(ws, 35, 3, 0.03)   # Market Rent Growth
-    _write_cell(ws, 36, 3, 0.02)   # MTM Growth
+    # Proforma assumptions — use Mesirow market forecast if available, else defaults
+    market_growth = mkt.get("market_5yr_avg") if mkt else None
+    sub_growth    = mkt.get("sub_5yr_avg")    if mkt else None
+    _write_cell(ws, 35, 3, market_growth if market_growth else 0.03)  # Market Rent Growth
+    _write_cell(ws, 36, 3, sub_growth    if sub_growth    else 0.02)  # MTM Growth (submarket proxy)
     _write_cell(ws, 40, 3, 0.02)   # Expense Growth
     _write_cell(ws, 41, 3, 0.02)   # Insurance Growth
 
@@ -121,7 +123,7 @@ def _fill_t12_intake(ws_intake, t12_parsed: dict):
     ws_intake.cell(40, 19).value = f"=P{noi_row}"
 
 
-def build_excel(data: dict, t12_parsed=None, whisper: str = "") -> bytes:
+def build_excel(data: dict, t12_parsed=None, whisper: str = "", market_data: dict | None = None) -> bytes:
     """
     Build a pre-filled QuickVal workbook.
     - data: merged deal dict (from OM + financial workbook + manual)
@@ -133,7 +135,7 @@ def build_excel(data: dict, t12_parsed=None, whisper: str = "") -> bytes:
 
     # Fill QuickVal Proforma overview
     ws_pf = wb["QuickVal Proforma"]
-    _fill_proforma_overview(ws_pf, data, whisper)
+    _fill_proforma_overview(ws_pf, data, whisper, market_data)
 
     # Fill T12 Intake with monthly data
     if t12_parsed:

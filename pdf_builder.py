@@ -239,6 +239,79 @@ def _build_pricing_metrics(data: dict, w_val: float | None, u_val: int | None) -
     ])
     return capex_block, rent_met
 
+# ── MARKET RESEARCH TABLE ────────────────────────────────────────────────────
+
+def _fmt_pct(v) -> str:
+    if v is None:
+        return "—"
+    try:
+        return f"{float(v)*100:.2f}%"
+    except Exception:
+        return "—"
+
+def build_market_block(md: dict) -> str:
+    """Render the Mesirow Markets rent forecast table. Returns '' if no data."""
+    if not md or not md.get("matched_metro"):
+        return ""
+
+    metro    = md.get("matched_metro", "")
+    sub      = md.get("matched_submarket")
+    mkt_rank = md.get("market_rank")
+    sub_rank = md.get("sub_rank")
+
+    from market_data import METRO_TOTAL, SUBMARKET_TOTAL
+
+    rows = ""
+    # Market row
+    mkt_label = metro.split(",")[0]  # shorten e.g. "Boston-Cambridge-Newton"
+    mkt_rank_str = f"{mkt_rank}/{METRO_TOTAL}" if mkt_rank else "—"
+    rows += (
+        f'<tr class="mkt-mkt">'
+        f'<td class="mkt-label">{mkt_label} <span class="mkt-type">Market</span></td>'
+        f'<td class="mkt-rank">{mkt_rank_str}</td>'
+        f'<td>{_fmt_pct(md.get("market_2026"))}</td>'
+        f'<td>{_fmt_pct(md.get("market_2027"))}</td>'
+        f'<td>{_fmt_pct(md.get("market_2028"))}</td>'
+        f'<td>{_fmt_pct(md.get("market_2029"))}</td>'
+        f'<td>{_fmt_pct(md.get("market_2030"))}</td>'
+        f'<td class="mkt-hi">{_fmt_pct(md.get("market_5yr_avg"))}</td>'
+        f'<td class="mkt-hi">{_fmt_pct(md.get("market_10yr_lta"))}</td>'
+        f'</tr>'
+    )
+    # Submarket row
+    if sub and md.get("sub_2026") is not None:
+        sub_rank_str = f"{sub_rank}/{SUBMARKET_TOTAL}" if sub_rank else "—"
+        rows += (
+            f'<tr class="mkt-sub">'
+            f'<td class="mkt-label">{sub} <span class="mkt-type">Submarket</span></td>'
+            f'<td class="mkt-rank">{sub_rank_str}</td>'
+            f'<td>{_fmt_pct(md.get("sub_2026"))}</td>'
+            f'<td>{_fmt_pct(md.get("sub_2027"))}</td>'
+            f'<td>{_fmt_pct(md.get("sub_2028"))}</td>'
+            f'<td>{_fmt_pct(md.get("sub_2029"))}</td>'
+            f'<td>{_fmt_pct(md.get("sub_2030"))}</td>'
+            f'<td class="mkt-hi">{_fmt_pct(md.get("sub_5yr_avg"))}</td>'
+            f'<td class="mkt-hi">{_fmt_pct(md.get("sub_10yr_lta"))}</td>'
+            f'</tr>'
+        )
+
+    return f"""
+<div class="mktres">
+  <div class="sec" style="margin-top:0">Mesirow Markets · Rent Growth Forecast</div>
+  <table class="mkt-tbl">
+    <thead>
+      <tr>
+        <th class="mkt-label-h"></th>
+        <th class="mkt-rank-h">Rank</th>
+        <th>2026</th><th>2027</th><th>2028</th><th>2029</th><th>2030</th>
+        <th class="mkt-hi-h">5yr Avg</th>
+        <th class="mkt-hi-h">10yr LTA</th>
+      </tr>
+    </thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>"""
+
 # ── SENSITIVITY TABLE ─────────────────────────────────────────────────────────
 
 def build_sensitivity(whisper_str: str, units_str: str, t12_noi_str: str, pf_noi_str: str) -> str:
@@ -353,11 +426,26 @@ table { width: 100%; border-collapse: collapse; }
 .bot .col-l { background: #f3f4f6; border-right: 2px solid #e5e7eb; }
 .bot .col-m { padding: 12px 14px; background: #f3f4f6; border-right: 2px solid #e5e7eb; }
 .bot .col-last { padding: 12px 14px; background: #f3f4f6; }
+
+.mktres { padding: 8px 16px 10px; background: #ffffff; border-bottom: 2px solid #e5e7eb; }
+.mkt-tbl { width: 100%; border-collapse: collapse; }
+.mkt-tbl thead tr { background: #f3f4f6; }
+.mkt-tbl th { padding: 3px 8px; text-align: center; font-size: 7px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #e5e7eb; }
+.mkt-tbl th.mkt-label-h { text-align: left; width: 32%; }
+.mkt-tbl th.mkt-rank-h  { width: 8%; }
+.mkt-tbl th.mkt-hi-h    { background: #eef3fb; }
+.mkt-tbl td { padding: 4px 8px; font-size: 10px; text-align: center; border-bottom: 1px solid #f3f4f6; color: #111827; }
+.mkt-tbl td.mkt-label { text-align: left; font-weight: 600; font-size: 9.5px; }
+.mkt-tbl td.mkt-rank  { font-size: 9px; color: #6b7280; }
+.mkt-tbl td.mkt-hi    { background: #eef3fb; font-weight: 600; color: #1B5BAE; }
+.mkt-type { font-weight: 400; color: #9ca3af; font-size: 8.5px; margin-left: 4px; }
+.mkt-mkt  { background: #ffffff; }
+.mkt-sub  { background: #f9fafb; }
 """
 
 # ── HTML BUILDER ──────────────────────────────────────────────────────────────
 
-def build_html(data: dict, img_b64s: dict, whisper: str = "") -> str:
+def build_html(data: dict, img_b64s: dict, whisper: str = "", market_data: dict | None = None) -> str:
     E = img_b64s.get("exterior")
     A = img_b64s.get("amenity")
     K = img_b64s.get("kitchen")
@@ -387,6 +475,7 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "") -> str:
     proforma_block = f'<div class="sec">Proforma Assumptions</div><table>{proforma_rows}</table>' if proforma_rows.strip() else ""
     inv_block      = f'<div class="sec">Investment Cost</div><table>{inv_rows}</table>' if inv_rows.strip() else ""
     sens_block     = build_sensitivity(whisper, data.get("units"), data.get("t12_noi"), data.get("stab_noi"))
+    mkt_block      = build_market_block(market_data or {})
 
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>{_HTML_CSS}</style></head><body>
@@ -429,6 +518,7 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "") -> str:
 </div>
 
 {sens_block}
+{mkt_block}
 
 <div class="mid">
   <div class="col-l">
@@ -471,8 +561,8 @@ _CHROMIUM_ARGS = [
     "--disable-setuid-sandbox",
 ]
 
-def build_pdf(data: dict, img_b64s: dict, whisper: str = "") -> bytes:
-    html = build_html(data, img_b64s, whisper)
+def build_pdf(data: dict, img_b64s: dict, whisper: str = "", market_data: dict | None = None) -> bytes:
+    html = build_html(data, img_b64s, whisper, market_data)
     with sync_playwright() as p:
         browser = p.chromium.launch(args=_CHROMIUM_ARGS)
         page    = browser.new_page(viewport={"width": CONFIG["PDF_VIEWPORT_WIDTH"], "height": CONFIG["PDF_VIEWPORT_HEIGHT"]})
