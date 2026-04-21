@@ -30,7 +30,7 @@ def db_load_pipeline() -> list[dict]:
                 "filename":       r["filename"],
                 "pdf_path":       r["pdf_path"],
                 "processed_file": r["processed_file"],
-                "ts":             datetime.fromisoformat(r["ts"]),
+                "ts":             datetime.fromisoformat(r["ts"].replace("Z", "+00:00")),
                 "deal_data":      r.get("deal_data") or {},
             }
             for r in rows

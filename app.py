@@ -4,7 +4,7 @@ subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], chec
 import json
 import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 
 import streamlit as st
 
@@ -275,7 +275,7 @@ def _pipeline_upsert(key, data, pdf_bytes, filename, whisper):
         "filename":       filename,
         "pdf_path":       pdf_path,
         "processed_file": key,
-        "ts":             datetime.now(),
+        "ts":             datetime.now(timezone.utc),
         "deal_data":      data,
     }
     if existing is not None:
@@ -305,11 +305,16 @@ with st.sidebar:
         for idx, deal in enumerate(st.session_state.pipeline):
             groups.setdefault(msa_for_deal(deal), []).append((idx, deal))
 
+        def _ts_key(d):
+            ts = d["ts"]
+            # Normalize to a plain string so tz-aware and tz-naive datetimes never collide
+            return str(ts)
+
         for msa, entries in sorted(groups.items(),
-                                   key=lambda g: max(d["ts"] for _, d in g[1]),
+                                   key=lambda g: max(_ts_key(d) for _, d in g[1]),
                                    reverse=True):
             st.markdown(f"**{msa.upper()}**")
-            for real_idx, deal in sorted(entries, key=lambda x: x[1]["ts"], reverse=True):
+            for real_idx, deal in sorted(entries, key=lambda x: _ts_key(x[1]), reverse=True):
                 meta = "  ·  ".join(x for x in [
                     f"{deal['units']} units" if deal["units"] else "",
                     deal["whisper"] if deal["whisper"] else "",
