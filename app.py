@@ -13,6 +13,7 @@ from database import db_load_pipeline, db_upsert_deal, db_upsert_qv, db_delete_d
 from excel_builder import build_excel
 from extraction import extract_text, call_claude
 from images import build_image_queries, serp_search_with_fallback, get_map_image, img_to_b64
+from lookup import get_walk_transit, get_zip_hhi
 from msa import msa_for_deal, BROKERAGE_OPTIONS
 from pdf_builder import build_pdf
 from t12_parser import parse_t12, COA_DESCRIPTIONS
@@ -487,9 +488,10 @@ with tab_pg:
 
     if pg_om_file and pg_upload_key != st.session_state.pg_key:
 
-        api_key  = st.secrets.get("API_KEY", "")
-        serp_key = st.secrets.get("SERP_KEY", "")
-        maps_key = st.secrets.get("maps_key", "")
+        api_key       = st.secrets.get("API_KEY", "")
+        serp_key      = st.secrets.get("SERP_KEY", "")
+        maps_key      = st.secrets.get("maps_key", "")
+        walkscore_key = st.secrets.get("WALKSCORE_KEY", "")
 
         if not api_key:
             st.error("API_KEY not configured.")
@@ -518,17 +520,21 @@ with tab_pg:
                 st.warning("SERP_KEY not set — property photos will be blank.")
 
             queries = build_image_queries(data.get("deal_name"), data.get("address"), data.get("city_state"))
-            st.write("Fetching property images...")
+            st.write("Fetching property images and market data...")
             try:
-                with ThreadPoolExecutor(max_workers=4) as ex:
+                with ThreadPoolExecutor(max_workers=6) as ex:
                     f_ext = ex.submit(serp_search_with_fallback, queries["exterior"], serp_key)
                     f_am  = ex.submit(serp_search_with_fallback, queries["amenity"],  serp_key)
                     f_ki  = ex.submit(serp_search_with_fallback, queries["kitchen"],  serp_key)
                     f_map = ex.submit(get_map_image, data.get("address"), data.get("city_state"), maps_key)
+                    f_wt  = ex.submit(get_walk_transit, data.get("address", ""), data.get("city_state", ""), maps_key, walkscore_key)
+                    f_hhi = ex.submit(get_zip_hhi, data.get("zip_code", ""))
                     img_results = {
                         "exterior": f_ext.result(), "amenity": f_am.result(),
                         "kitchen":  f_ki.result(),  "map":     (f_map.result(), "ok"),
                     }
+                    data.update(f_wt.result())
+                    data.update(f_hhi.result())
             except Exception as e:
                 logger.exception("Image fetch error")
                 _status.update(label="Image fetch failed", state="error")

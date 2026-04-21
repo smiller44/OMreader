@@ -164,6 +164,7 @@ def _build_property_rows(data: dict) -> str:
         kv("Econ Occ",      nv(data.get("economic_occupancy"))),
         kv("Walk Score",    nv(data.get("walk_score"))),
         kv("Transit Score", nv(data.get("transit_score"))),
+        kv("Zip Avg HHI",   nv(data.get("zip_avg_hhi"))),
         kv("County",        nv(data.get("county"))),
         kv("MSA",           nv(data.get("msa"))),
         kv("GP Owner",      nv(data.get("gp_owner"))),
