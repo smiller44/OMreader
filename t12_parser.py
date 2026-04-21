@@ -407,9 +407,8 @@ def _detect_header_row_pdf(rows: list[list]):
     raise ValueError("Could not detect month header row in PDF T12.")
 
 
-def _parse_t12_from_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, months: list[str], acct_map: dict = None):
+def _parse_t12_from_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, acct_map: dict = None):
     """Shared parse logic that works on a flat list of string rows."""
-    import re
     if acct_map is None:
         acct_map = _ACCT_TO_COA
     n_months = total_col - first_col
@@ -418,7 +417,11 @@ def _parse_t12_from_rows(rows: list[list], hdr_idx: int, first_col: int, total_c
     coa = {}
     reported_noi = None
 
-    _NOI_PATTERNS = ("net operating income", "net operating cash flow", "operating cash flow")
+    _NOI_PATTERNS = (
+        "net operating income", "net operating cash flow", "operating cash flow",
+        "total noi", "property noi", "net income from operations",
+        "net operating", "total operating income",
+    )
 
     for row in rows[hdr_idx + 1:]:
         if len(row) <= total_col:
@@ -482,7 +485,7 @@ def parse_t12(file_bytes: bytes, extra_mappings: dict = None) -> dict:
         hdr_idx, first_col, total_col, months = _detect_header_row_pdf(rows)
         n_months = total_col - first_col
         line_items, unmapped, coa, reported_noi = _parse_t12_from_rows(
-            rows, hdr_idx, first_col, total_col, months, acct_map=effective_map
+            rows, hdr_idx, first_col, total_col, acct_map=effective_map
         )
     else:
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
@@ -494,7 +497,11 @@ def parse_t12(file_bytes: bytes, extra_mappings: dict = None) -> dict:
         unmapped     = []
         coa          = {}
         reported_noi = None
-        _NOI_PATTERNS = ("net operating income", "net operating cash flow", "operating cash flow")
+        _NOI_PATTERNS = (
+        "net operating income", "net operating cash flow", "operating cash flow",
+        "total noi", "property noi", "net income from operations",
+        "net operating", "total operating income",
+    )
 
         for r in range(hdr_row + 1, ws.max_row + 1):
             acct_raw = ws.cell(r, 1).value

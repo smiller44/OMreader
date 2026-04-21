@@ -77,15 +77,14 @@ def _fill_t12_intake(ws_intake, t12_parsed: dict):
     n_months   = t12_parsed.get("n_months", len(months))
     line_items = t12_parsed.get("line_items", [])
 
-    # Set anchor date on row 3 at the last-month column (col D + n_months - 1 = col 3+n_months)
+    # Set anchor date on row 3 — always col O (15), the template's fixed last-month column
     if months:
         last_month_str = months[-1]
         try:
             import calendar
             anchor_dt = datetime.strptime(last_month_str, "%b %Y")
             last_day  = calendar.monthrange(anchor_dt.year, anchor_dt.month)[1]
-            anchor_col = 3 + n_months   # col D=4 → last month col = 3+n_months
-            ws_intake.cell(3, anchor_col).value = date(anchor_dt.year, anchor_dt.month, last_day)
+            ws_intake.cell(3, 15).value = date(anchor_dt.year, anchor_dt.month, last_day)
         except Exception:
             pass
 
@@ -93,7 +92,7 @@ def _fill_t12_intake(ws_intake, t12_parsed: dict):
     COL_ACCT    = 2   # B — source account code
     COL_NAME    = 3   # C — source description
     COL_FIRST   = 4   # D — first month value
-    COL_TOTAL   = 3 + n_months + 1   # P — totals column
+    COL_TOTAL   = 16  # P — hardcoded; template SUMIF always looks at col P
     COL_COA     = 17  # Q — Mesirow COA label for SUMIF
 
     data_row = 4
@@ -113,9 +112,10 @@ def _fill_t12_intake(ws_intake, t12_parsed: dict):
     # Write a visible "Net Operating Income" summary row after all line items
     noi_row = data_row
     ws_intake.cell(noi_row, COL_NAME).value = "Net Operating Income"
-    reported_noi = t12_parsed.get("reported_noi")
-    if reported_noi is not None:
-        ws_intake.cell(noi_row, COL_TOTAL).value = round(reported_noi, 2)
+    # Use seller's reported NOI if captured; fall back to our Python-computed NOI
+    noi_value = t12_parsed.get("reported_noi") or t12_parsed.get("_noi")
+    if noi_value is not None:
+        ws_intake.cell(noi_row, COL_TOTAL).value = round(noi_value, 2)
 
     # S40 references the NOI row formulaically so it updates if the row is edited
     ws_intake.cell(40, 19).value = f"=P{noi_row}"

@@ -514,22 +514,25 @@ with tab_pg:
             st.error(f"OM too large (max {CONFIG['MAX_FILE_SIZE_MB']} MB).")
             st.stop()
 
-        with st.spinner("Analyzing OM..."):
+        with st.status("Generating 1-pager...", expanded=True) as _status:
             try:
+                st.write("Extracting deal data from OM...")
                 data = call_claude(extract_text(om_bytes), api_key)
             except json.JSONDecodeError as e:
-                st.error(f"Failed to parse Claude's OM response: {e}")
+                _status.update(label="Extraction failed", state="error")
+                st.error(f"Failed to parse Claude's response: {e}")
                 st.stop()
             except Exception as e:
                 logger.exception("Claude extraction error")
+                _status.update(label="Extraction failed", state="error")
                 st.error(f"OM analysis error: {e}")
                 st.stop()
 
-        if not serp_key:
-            st.warning("SERP_KEY not set — property photos will be blank.")
+            if not serp_key:
+                st.warning("SERP_KEY not set — property photos will be blank.")
 
-        queries = build_image_queries(data.get("deal_name"), data.get("address"), data.get("city_state"))
-        with st.spinner("Fetching images..."):
+            queries = build_image_queries(data.get("deal_name"), data.get("address"), data.get("city_state"))
+            st.write("Fetching property images...")
             try:
                 with ThreadPoolExecutor(max_workers=4) as ex:
                     f_ext = ex.submit(serp_search_with_fallback, queries["exterior"], serp_key)
@@ -542,18 +545,22 @@ with tab_pg:
                     }
             except Exception as e:
                 logger.exception("Image fetch error")
+                _status.update(label="Image fetch failed", state="error")
                 st.error(f"Image fetch error: {e}")
                 st.stop()
 
-        img_b64s = {k: img_to_b64(img_results[k][0]) for k in ("exterior", "amenity", "kitchen", "map")}
+            img_b64s = {k: img_to_b64(img_results[k][0]) for k in ("exterior", "amenity", "kitchen", "map")}
 
-        with st.spinner("Building 1-pager..."):
+            st.write("Building PDF...")
             try:
                 pdf_out = build_pdf(data, img_b64s)
             except Exception as e:
                 logger.exception("Build error")
+                _status.update(label="Build failed", state="error")
                 st.error(f"Build error: {e}")
                 st.stop()
+
+            _status.update(label="1-pager complete", state="complete", expanded=False)
 
         ds, cs = _slugs(data)
         filename = f"{ds}_{cs}_1pager.pdf" if cs else f"{ds}_1pager.pdf"
@@ -584,7 +591,7 @@ with tab_pg:
         st.markdown('</div>', unsafe_allow_html=True)
 
         if pg_apply and pg_whisper != st.session_state.pg_whisper:
-            with st.spinner("Rebuilding with whisper price..."):
+            with st.spinner(f"Rebuilding 1-pager with {pg_whisper}..."):
                 try:
                     st.session_state.pg_pdf = build_pdf(st.session_state.pg_data,
                                                          st.session_state.pg_imgs, pg_whisper)
@@ -640,7 +647,7 @@ with tab_qv:
         if not api_key:
             st.error("API_KEY not configured.")
             st.stop()
-        with st.spinner("Extracting deal info from OM..."):
+        with st.spinner("Reading OM..."):
             try:
                 om_bytes = qv_om_file.read()
                 st.session_state.qv_om_data = call_claude(extract_text(om_bytes), api_key)
@@ -671,31 +678,75 @@ with tab_qv:
 
     if qv_t12_file and qv_upload_key != st.session_state.qv_key:
 
-        # Step 1: Parse T12 (required)
         t12_bytes = qv_t12_file.read()
-        with st.spinner("Parsing T12..."):
+        api_key   = st.secrets.get("API_KEY", "")
+
+        with st.status("Building QuickVal model...", expanded=True) as _status:
+
+            # Step 1: Parse T12
+            st.write("Parsing T12 operating statement...")
             try:
                 qv_t12_parsed = parse_t12(t12_bytes)
             except Exception as e:
                 logger.exception("T12 parse error")
+                _status.update(label="T12 parse failed", state="error")
                 st.error(f"T12 parse error: {e}")
                 st.stop()
 
-        # Auto-classify any unmapped line items so the sheet balances
-        unmapped = qv_t12_parsed.get("unmapped", [])
-        if unmapped:
-            api_key = st.secrets.get("API_KEY", "")
-            with st.spinner(f"Auto-classifying {len(unmapped)} unmapped line items..."):
+            # Step 2: Auto-classify unmapped line items
+            unmapped = qv_t12_parsed.get("unmapped", [])
+            if unmapped:
+                st.write(f"Classifying {len(unmapped)} unmapped line items...")
                 ai_mappings = _classify_unmapped(unmapped, api_key)
-            if ai_mappings:
-                st.session_state.qv_ai_mappings = ai_mappings
-                with st.spinner("Re-parsing with classified items..."):
+                if ai_mappings:
+                    st.session_state.qv_ai_mappings = ai_mappings
+                    st.write("Re-parsing with classified items...")
                     try:
                         qv_t12_parsed = parse_t12(t12_bytes, extra_mappings=ai_mappings)
                     except Exception as e:
                         logger.warning("Re-parse after classification failed: %s", e)
 
-        # Show any items still unmapped after AI pass (should be rare)
+            # Step 3: Parse tax bill
+            qv_data: dict = {
+                "t12_basis":          "T-12",
+                "t12_egi":            qv_t12_parsed["summary"]["t12_egi"],
+                "t12_opex":           qv_t12_parsed["summary"]["t12_opex"],
+                "t12_noi":            qv_t12_parsed["summary"]["t12_noi"],
+                "loss_to_lease":      qv_t12_parsed["summary"]["loss_to_lease"],
+                "physical_occupancy": qv_t12_parsed["summary"].get("physical_occupancy"),
+            }
+            if st.session_state.qv_om_data:
+                for k, v in st.session_state.qv_om_data.items():
+                    if v:
+                        qv_data[k] = v
+            for k, v in qv_manual.items():
+                if v:
+                    qv_data[k] = v
+
+            if qv_tax_file:
+                st.write("Parsing tax bill...")
+                try:
+                    tax_data = parse_tax_bill(qv_tax_file.read(), qv_tax_file.name)
+                    for k, v in tax_data.items():
+                        if v is not None:
+                            qv_data[k] = v
+                except Exception as e:
+                    logger.warning("Tax bill parse error: %s", e)
+                    st.warning(f"Tax bill could not be parsed: {e}")
+
+            # Step 4: Build Excel
+            st.write("Building Excel model...")
+            try:
+                excel_out = build_excel(qv_data, qv_t12_parsed, "")
+            except Exception as e:
+                logger.exception("Excel build error")
+                _status.update(label="Excel build failed", state="error")
+                st.error(f"Excel build error: {e}")
+                st.stop()
+
+            _status.update(label="QuickVal ready", state="complete", expanded=False)
+
+        # Show any items still unmapped after AI pass
         still_unmapped = qv_t12_parsed.get("unmapped", [])
         if still_unmapped:
             unmapped_total = sum(abs(u["total"]) for u in still_unmapped)
@@ -711,46 +762,6 @@ with tab_qv:
                     }).assign(**{"T12 Total ($)": lambda df: df["T12 Total ($)"].map(lambda v: f"${v:,.0f}")}),
                     hide_index=True, use_container_width=True,
                 )
-
-        # Step 2: Merge data — T12 summary → OM data → manual overrides
-        qv_data: dict = {
-            "t12_basis":          "T-12",
-            "t12_egi":            qv_t12_parsed["summary"]["t12_egi"],
-            "t12_opex":           qv_t12_parsed["summary"]["t12_opex"],
-            "t12_noi":            qv_t12_parsed["summary"]["t12_noi"],
-            "loss_to_lease":      qv_t12_parsed["summary"]["loss_to_lease"],
-            "physical_occupancy": qv_t12_parsed["summary"].get("physical_occupancy"),
-        }
-        # OM data wins over T12 scrub for deal metadata
-        if st.session_state.qv_om_data:
-            for k, v in st.session_state.qv_om_data.items():
-                if v:
-                    qv_data[k] = v
-        # Manual entries override everything
-        for k, v in qv_manual.items():
-            if v:
-                qv_data[k] = v
-
-        # Step 3: Parse Tax Bill (optional)
-        if qv_tax_file:
-            with st.spinner("Parsing tax bill..."):
-                try:
-                    tax_data = parse_tax_bill(qv_tax_file.read(), qv_tax_file.name)
-                    for k, v in tax_data.items():
-                        if v is not None:
-                            qv_data[k] = v
-                except Exception as e:
-                    logger.warning("Tax bill parse error: %s", e)
-                    st.warning(f"Tax bill parse warning: {e}")
-
-        # Step 4: Build Excel
-        with st.spinner("Building QuickVal model..."):
-            try:
-                excel_out = build_excel(qv_data, qv_t12_parsed, "")
-            except Exception as e:
-                logger.exception("Excel build error")
-                st.error(f"Excel build error: {e}")
-                st.stop()
 
         ds, cs = _slugs(qv_data)
         qv_filename = f"{ds}_{cs}_QuickVal.xlsx" if cs else f"{ds}_QuickVal.xlsx"
@@ -784,7 +795,7 @@ with tab_qv:
         st.markdown('</div>', unsafe_allow_html=True)
 
         if qv_apply and qv_whisper != st.session_state.qv_whisper:
-            with st.spinner("Rebuilding with whisper price..."):
+            with st.spinner(f"Rebuilding QuickVal with {qv_whisper}..."):
                 try:
                     st.session_state.qv_excel = build_excel(st.session_state.qv_data,
                                                              st.session_state.qv_t12,
