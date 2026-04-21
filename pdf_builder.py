@@ -226,7 +226,7 @@ _HTML_CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 1100px; font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.4; }
 
-.hdr { background: #ffffff; border-top: 4px solid #1B5BAE; border-bottom: 1px solid #e5e7eb; padding: 14px 22px 12px; display: flex; justify-content: space-between; align-items: flex-end; }
+.hdr { background: #ffffff; border-top: 5px solid #1B5BAE; border-bottom: 1px solid #e5e7eb; padding: 14px 22px 12px; display: flex; justify-content: space-between; align-items: flex-end; }
 .hdr-left { flex: 1; }
 .hdr-right { text-align: right; flex-shrink: 0; }
 .deal-name { font-size: 22px; font-weight: 700; color: #111827; letter-spacing: -0.5px; margin-bottom: 3px; }
@@ -235,12 +235,12 @@ html, body { width: 1100px; font-family: Arial, sans-serif; font-size: 11px; col
 .mesirow-brand { font-size: 9px; font-weight: 700; color: #1B5BAE; letter-spacing: .16em; text-transform: uppercase; }
 .hdr-class { font-size: 9px; color: #9ca3af; margin-top: 3px; }
 
-.strip { background: #f3f6fb; display: flex; border-bottom: 1px solid #dce6f0; }
-.stat { flex: 1; padding: 8px 12px; border-right: 1px solid #dce6f0; }
+.strip { background: #1B5BAE; display: flex; border-bottom: 2px solid #174d9a; }
+.stat { flex: 1; padding: 8px 12px; border-right: 1px solid #2469c0; }
 .stat:last-child { border-right: none; }
-.sl { font-size: 7px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }
-.sv { font-size: 12px; font-weight: 700; color: #111827; }
-.dim { color: #d1d5db !important; }
+.sl { font-size: 7px; font-weight: 600; color: #93b8e0; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }
+.sv { font-size: 12px; font-weight: 700; color: #ffffff; }
+.dim { color: #4a7ab5 !important; }
 
 .body { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 2px solid #e5e7eb; }
 .col-l { padding: 12px 16px; background: #ffffff; border-right: 2px solid #e5e7eb; }
