@@ -55,82 +55,64 @@ section[data-testid="stSidebar"] h3 {
     color: #FFFFFF !important;
     font-size: 11px !important;
     font-weight: 700 !important;
-    letter-spacing: 0.12em !important;
+    letter-spacing: 0.14em !important;
     text-transform: uppercase !important;
     margin-bottom: 0 !important;
 }
-/* MSA expanders */
-section[data-testid="stSidebar"] .stExpander {
-    border: none !important;
-    background: transparent !important;
+section[data-testid="stSidebar"] hr {
+    border-color: #152333 !important;
+    opacity: 1 !important;
+    margin: 4px 0 !important;
+}
+/* MSA section header */
+.msa-header {
+    font-size: 8.5px !important;
+    font-weight: 700 !important;
+    color: #2A4F72 !important;
+    letter-spacing: 0.16em !important;
+    text-transform: uppercase !important;
+    padding: 10px 0 3px !important;
+    border-bottom: 1px solid #152333 !important;
     margin-bottom: 2px !important;
 }
-section[data-testid="stSidebar"] .stExpander summary {
-    background: transparent !important;
-    padding: 4px 0 !important;
-    font-size: 9px !important;
-    font-weight: 700 !important;
-    color: #3A6A9A !important;
-    letter-spacing: 0.12em !important;
-    text-transform: uppercase !important;
-    border-bottom: 1px solid #1A2E45 !important;
-}
-section[data-testid="stSidebar"] .stExpander summary:hover {
-    color: #7AAAD4 !important;
-}
-section[data-testid="stSidebar"] .stExpander > div[data-testid="stExpanderDetails"] {
-    padding: 4px 0 0 0 !important;
-    background: transparent !important;
-}
-/* Deal row */
-.deal-row-name {
+/* Deal row text */
+.dr-name {
     font-size: 11px !important;
     font-weight: 600 !important;
-    color: #C8DCF0 !important;
+    color: #BDD4EE !important;
+    line-height: 1.25 !important;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    line-height: 1.3 !important;
 }
-.deal-row-meta {
+.dr-meta {
     font-size: 9px !important;
-    color: #4A6A8A !important;
+    color: #364F68 !important;
     line-height: 1.2 !important;
-    margin-bottom: 3px !important;
 }
-/* Sidebar download buttons — compact */
-section[data-testid="stSidebar"] .stDownloadButton > button {
-    background: #122035 !important;
-    color: #7AAAD4 !important;
-    border: 1px solid #1E3F60 !important;
-    border-radius: 3px !important;
-    font-size: 9px !important;
-    font-weight: 700 !important;
-    padding: 2px 4px !important;
-    letter-spacing: 0.02em !important;
-    width: 100% !important;
-    min-height: unset !important;
-    height: 22px !important;
-    line-height: 1 !important;
-}
-section[data-testid="stSidebar"] .stDownloadButton > button:hover {
-    background: #1B5BAE !important;
-    color: #fff !important;
-    border-color: #1B5BAE !important;
-}
-/* Sidebar delete button */
+/* Sidebar action buttons — text-link style */
+section[data-testid="stSidebar"] .stDownloadButton > button,
 section[data-testid="stSidebar"] .stButton > button {
     background: transparent !important;
     border: none !important;
-    color: #2A4A65 !important;
-    font-size: 11px !important;
-    padding: 0 2px !important;
-    line-height: 1 !important;
+    color: #2E5A84 !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    padding: 0 !important;
     min-height: unset !important;
-    height: 22px !important;
+    height: 20px !important;
+    line-height: 1 !important;
+    letter-spacing: 0.02em !important;
+    width: 100% !important;
+    box-shadow: none !important;
+}
+section[data-testid="stSidebar"] .stDownloadButton > button:hover {
+    color: #6AAEE8 !important;
+    background: transparent !important;
 }
 section[data-testid="stSidebar"] .stButton > button:hover {
-    color: #7AAAD4 !important;
+    color: #5A7A9A !important;
+    background: transparent !important;
 }
 
 /* ── Tabs ──────────────────────────────────────────────────────────── */
@@ -441,63 +423,63 @@ with st.sidebar:
         for msa, entries in sorted(groups.items(),
                                    key=lambda g: max(_ts_key(d) for _, d in g[1]),
                                    reverse=True):
-            label = f"{msa}  ·  {len(entries)}"
-            with st.expander(label, expanded=True):
-                for real_idx, deal in sorted(entries, key=lambda x: _ts_key(x[1]), reverse=True):
-                    meta_parts = [
-                        f"{deal['units']}u" if deal.get("units") else "",
-                        deal["whisper"] if deal.get("whisper") else "",
-                    ]
-                    meta = "  ·  ".join(p for p in meta_parts if p)
+            st.markdown(f'<div class="msa-header">{msa}</div>', unsafe_allow_html=True)
 
-                    has_pdf = bool(deal.get("pdf_path"))
-                    has_xl  = bool(deal.get("excel_path"))
+            for real_idx, deal in sorted(entries, key=lambda x: _ts_key(x[1]), reverse=True):
+                meta_parts = [
+                    f"{deal['units']}u" if deal.get("units") else "",
+                    deal["whisper"] if deal.get("whisper") else "",
+                ]
+                meta = " · ".join(p for p in meta_parts if p)
 
-                    # Single compact row: name | [↓P] [↓Q] [×]
-                    if has_pdf and has_xl:
-                        nc, c1, c2, xc = st.columns([4.5, 1.2, 1.2, 0.8])
-                    else:
-                        nc, c1, xc = st.columns([5.5, 1.8, 0.8])
-                        c2 = None
+                has_pdf = bool(deal.get("pdf_path"))
+                has_xl  = bool(deal.get("excel_path"))
 
-                    with nc:
-                        st.markdown(
-                            f'<div class="deal-row-name">{deal["deal_name"]}</div>'
-                            + (f'<div class="deal-row-meta">{meta}</div>' if meta else ""),
-                            unsafe_allow_html=True,
-                        )
+                # Row: [name+meta] [↓1P] [↓QV] [✕]  or  [name+meta] [↓] [✕]
+                if has_pdf and has_xl:
+                    nc, c1, c2, xc = st.columns([5, 1.3, 1.3, 0.8])
+                else:
+                    nc, c1, xc = st.columns([6, 1.6, 0.8])
+                    c2 = None
 
-                    if has_pdf:
-                        with c1:
-                            pdf_b = fetch_pdf(deal["pdf_path"], deal["ts"])
-                            st.download_button("↓ 1P", data=pdf_b or b"",
-                                file_name=deal["filename"], mime="application/pdf",
-                                key=f"dl_pdf_{real_idx}", use_container_width=True,
-                                disabled=not pdf_b)
-                    if has_xl and c2 is not None:
-                        with c2:
-                            xl_b = fetch_excel(deal["excel_path"], deal["ts"])
-                            st.download_button("↓ QV", data=xl_b or b"",
-                                file_name=deal.get("excel_filename", "model.xlsx"),
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key=f"dl_xl_{real_idx}", use_container_width=True,
-                                disabled=not xl_b)
-                    elif has_xl and not has_pdf:
-                        with c1:
-                            xl_b = fetch_excel(deal["excel_path"], deal["ts"])
-                            st.download_button("↓ QV", data=xl_b or b"",
-                                file_name=deal.get("excel_filename", "model.xlsx"),
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                key=f"dl_xl_{real_idx}", use_container_width=True,
-                                disabled=not xl_b)
+                with nc:
+                    st.markdown(
+                        f'<div class="dr-name">{deal["deal_name"]}</div>'
+                        + (f'<div class="dr-meta">{meta}</div>' if meta else ""),
+                        unsafe_allow_html=True,
+                    )
 
-                    with xc:
-                        if st.button("✕", key=f"rm_{real_idx}", help="Remove"):
-                            db_delete_deal(deal["processed_file"],
-                                           deal.get("pdf_path", ""),
-                                           deal.get("excel_path", ""))
-                            st.session_state.pipeline.pop(real_idx)
-                            st.rerun()
+                if has_pdf:
+                    with c1:
+                        pdf_b = fetch_pdf(deal["pdf_path"], deal["ts"])
+                        st.download_button("↓ 1P", data=pdf_b or b"",
+                            file_name=deal["filename"], mime="application/pdf",
+                            key=f"dl_pdf_{real_idx}", use_container_width=True,
+                            disabled=not pdf_b)
+                if has_xl and c2 is not None:
+                    with c2:
+                        xl_b = fetch_excel(deal["excel_path"], deal["ts"])
+                        st.download_button("↓ QV", data=xl_b or b"",
+                            file_name=deal.get("excel_filename", "model.xlsx"),
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key=f"dl_xl_{real_idx}", use_container_width=True,
+                            disabled=not xl_b)
+                elif has_xl and not has_pdf:
+                    with c1:
+                        xl_b = fetch_excel(deal["excel_path"], deal["ts"])
+                        st.download_button("↓ QV", data=xl_b or b"",
+                            file_name=deal.get("excel_filename", "model.xlsx"),
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key=f"dl_xl_{real_idx}", use_container_width=True,
+                            disabled=not xl_b)
+
+                with xc:
+                    if st.button("✕", key=f"rm_{real_idx}", help="Remove"):
+                        db_delete_deal(deal["processed_file"],
+                                       deal.get("pdf_path", ""),
+                                       deal.get("excel_path", ""))
+                        st.session_state.pipeline.pop(real_idx)
+                        st.rerun()
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
 
