@@ -82,21 +82,55 @@ def _build_income_rows(data: dict) -> tuple[str, str]:
 
 def _build_capital_rows(data: dict) -> str:
     return "".join([
-        kv("Lender",    nv(data.get("lender"))),
-        kv("Type",      nv(data.get("debt_type"))),
-        kv("Term / IO", nv(data.get("term_io"))),
-        kv("Rate",      nv(data.get("rate"))),
-        kv("LTC / LTV", nv(data.get("ltc_ltv"))),
-        kv("Equity",    nv(data.get("equity"))),
+        kv("Lender",      nv(data.get("lender"))),
+        kv("Type",        nv(data.get("debt_type"))),
+        kv("Loan Amount", nv(data.get("loan_amount"))),
+        kv("Term / IO",   nv(data.get("term_io"))),
+        kv("Index Rate",  nv(data.get("index_rate"))),
+        kv("Spread",      nv(data.get("spread_cushion"))),
+        kv("All-In Rate", nv(data.get("rate"))),
+        kv("LTC / LTV",   nv(data.get("ltc_ltv"))),
+        kv("Payoff Term", nv(data.get("payoff_term"))),
+        kv("Refi LTV",    nv(data.get("refi_ltv"))),
+        kv("Refi Rate",   nv(data.get("refi_rate"))),
+        kv("LOC Amount",  nv(data.get("loc_amount"))),
+        kv("LOC Rate",    nv(data.get("loc_rate"))),
+        kv("Equity",      nv(data.get("equity"))),
     ])
 
 def _build_returns_rows(data: dict) -> str:
+    hold = nv(data.get("hold_period")) or nv(data.get("exit_year"))
     return "".join([
-        kv("Levered IRR", nv(data.get("levered_irr"))),
-        kv("Eq Multiple", nv(data.get("equity_multiple"))),
-        kv("Avg CoC",     nv(data.get("avg_coc"))),
-        kv("Exit Yr",     nv(data.get("exit_year"))),
-        kv("Exit Cap",    nv(data.get("exit_cap"))),
+        kv("Going-In Cap",       nv(data.get("going_in_cap_rate"))),
+        kv("Untrended Stab Yld", nv(data.get("untrended_stab_yield"))),
+        kv("Yr 1 F&C Yield",     nv(data.get("year1_yield"))),
+        kv("Yr 5 F&C Yield",     nv(data.get("year5_yield"))),
+        kv("Unlevered IRR",      nv(data.get("unlevered_irr"))),
+        kv("Unlevered EM",       nv(data.get("unlevered_em"))),
+        kv("Levered IRR",        nv(data.get("levered_irr"))),
+        kv("Levered EM",         nv(data.get("equity_multiple"))),
+        kv("Levered Gross EM",   nv(data.get("levered_gross_em"))),
+        kv("Avg CoC",            nv(data.get("avg_coc"))),
+        kv("Hold Period",        hold),
+        kv("Exit Cap",           nv(data.get("exit_cap"))),
+    ])
+
+def _build_proforma_rows(data: dict) -> str:
+    return "".join([
+        kv("Yr 1 Rent Growth", nv(data.get("rent_growth_yr1"))),
+        kv("Yr 2 Rent Growth", nv(data.get("rent_growth_yr2"))),
+        kv("Yr 3 Rent Growth", nv(data.get("rent_growth_yr3"))),
+        kv("Renov Premium",    nv(data.get("renov_premium"))),
+        kv("Mgmt Fee",         nv(data.get("mgmt_fee_pct"))),
+        kv("Insurance / Unit", nv(data.get("insurance_per_unit"))),
+    ])
+
+def _build_investment_rows(data: dict) -> str:
+    return "".join([
+        kv("Closing Costs",     nv(data.get("closing_costs"))),
+        kv("Total F&C Invest.", nv(data.get("total_fc_investment"))),
+        kv("Loan Costs / Fees", nv(data.get("loan_costs"))),
+        kv("Total Levered Inv", nv(data.get("total_levered_investment"))),
     ])
 
 def _unit_mix_row(unit_mix) -> str:
@@ -123,13 +157,21 @@ def _unit_mix_row(unit_mix) -> str:
 
 def _build_property_rows(data: dict) -> str:
     return "".join([
-        kv("Construction", nv(data.get("construction_type"))),
-        kv("Parking",      nv(data.get("parking"))),
-        kv("Stories",      nv(data.get("stories"))),
-        kv("Econ Occ",     nv(data.get("economic_occupancy"))),
-        kv("Amenities",    nv(data.get("amenities"))),
+        kv("Construction",  nv(data.get("construction_type"))),
+        kv("Parking",       nv(data.get("parking"))),
+        kv("Stories",       nv(data.get("stories"))),
+        kv("Acreage",       nv(data.get("acreage"))),
+        kv("Econ Occ",      nv(data.get("economic_occupancy"))),
+        kv("Walk Score",    nv(data.get("walk_score"))),
+        kv("Transit Score", nv(data.get("transit_score"))),
+        kv("County",        nv(data.get("county"))),
+        kv("MSA",           nv(data.get("msa"))),
+        kv("GP Owner",      nv(data.get("gp_owner"))),
+        kv("LP Owner",      nv(data.get("lp_owner"))),
+        kv("PM Company",    nv(data.get("pm_company"))),
+        kv("Amenities",     nv(data.get("amenities"))),
         _unit_mix_row(data.get("unit_mix")),
-        kv("Retail",       nv(data.get("retail")) or "No retail"),
+        kv("Retail",        nv(data.get("retail")) or "No retail"),
     ])
 
 def _build_process_rows(data: dict) -> str:
@@ -174,13 +216,27 @@ def _build_stat_strip(data: dict, whisper: str) -> tuple[str, float | None, int 
     return stat_html, w_val, u_val
 
 def _build_pricing_metrics(data: dict, w_val: float | None, u_val: int | None) -> tuple[str, str]:
-    capex_met = met([("Capex Total", nv(data.get("capex_total"))), ("Capex / Unit", nv(data.get("capex_per_unit")))])
-    rent_met  = met([
+    has_breakdown = any(nv(data.get(f)) for f in ("capex_deferred", "capex_amenity", "capex_unit_interior"))
+    if has_breakdown:
+        capex_rows = "".join([
+            kv("Def. Maint.",   nv(data.get("capex_deferred"))),
+            kv("Amenity",       nv(data.get("capex_amenity"))),
+            kv("Unit Interior", nv(data.get("capex_unit_interior"))),
+            kv("Total",         nv(data.get("capex_total"))),
+            kv("Per Unit",      nv(data.get("capex_per_unit"))),
+        ])
+        capex_block = f'<table>{capex_rows}</table>'
+    else:
+        capex_block = met([
+            ("Capex Total", nv(data.get("capex_total"))),
+            ("Capex / Unit", nv(data.get("capex_per_unit"))),
+        ])
+    rent_met = met([
         ("In-Place Rent",  nv(data.get("in_place_rent"))),
         ("Pro Forma Rent", nv(data.get("pro_forma_rent"))),
         ("Loss-to-Lease",  nv(data.get("loss_to_lease"))),
     ])
-    return capex_met, rent_met
+    return capex_block, rent_met
 
 # ── SENSITIVITY TABLE ─────────────────────────────────────────────────────────
 
@@ -306,14 +362,16 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "") -> str:
     K = img_b64s.get("kitchen")
     M = img_b64s.get("map")
 
-    t12rows, stabrows = _build_income_rows(data)
-    caprows  = _build_capital_rows(data)
-    retrows  = _build_returns_rows(data)
-    proprows = _build_property_rows(data)
-    procrows = _build_process_rows(data)
+    t12rows, stabrows  = _build_income_rows(data)
+    caprows            = _build_capital_rows(data)
+    retrows            = _build_returns_rows(data)
+    proforma_rows      = _build_proforma_rows(data)
+    inv_rows           = _build_investment_rows(data)
+    proprows           = _build_property_rows(data)
+    procrows           = _build_process_rows(data)
 
     stat_html, w_val, u_val = _build_stat_strip(data, whisper)
-    capex_met, rent_met     = _build_pricing_metrics(data, w_val, u_val)
+    capex_block, rent_met   = _build_pricing_metrics(data, w_val, u_val)
 
     parts  = " · ".join(x for x in [
         data.get("address"), data.get("city_state"), data.get("submarket"),
@@ -322,10 +380,12 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "") -> str:
         data.get("deal_type"), data.get("deal_status"), data.get("broker"),
     ] if x)
 
-    stab_block = f'<div class="divider"></div><table>{stabrows}</table>' if stabrows else ""
-    ret_block  = f'<div class="divider"></div><table>{retrows}</table>' if retrows else ""
-    tax_block  = f'<div class="divider"></div><table>{kv("Tax Notes", nv(data.get("tax_notes")))}</table>' if nv(data.get("tax_notes")) else ""
-    sens_block = build_sensitivity(whisper, data.get("units"), data.get("t12_noi"), data.get("stab_noi"))
+    stab_block     = f'<div class="divider"></div><table>{stabrows}</table>' if stabrows else ""
+    ret_block      = f'<div class="divider"></div><table>{retrows}</table>' if retrows else ""
+    tax_block      = f'<div class="divider"></div><table>{kv("Tax Notes", nv(data.get("tax_notes")))}</table>' if nv(data.get("tax_notes")) else ""
+    proforma_block = f'<div class="sec">Proforma Assumptions</div><table>{proforma_rows}</table>' if proforma_rows.strip() else ""
+    inv_block      = f'<div class="sec">Investment Cost</div><table>{inv_rows}</table>' if inv_rows.strip() else ""
+    sens_block     = build_sensitivity(whisper, data.get("units"), data.get("t12_noi"), data.get("stab_noi"))
 
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>{_HTML_CSS}</style></head><body>
@@ -353,11 +413,13 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "") -> str:
   </div>
   <div class="col-r">
     <div class="sec">Pricing &amp; Capex</div>
-    {capex_met}
+    {capex_block}
+    {inv_block}
     <div class="sec">In-Place vs Pro Forma</div>
     {rent_met}
     <table>{t12rows}</table>
     {stab_block}
+    {proforma_block}
     <div class="sec">Capital Structure (As Stated in OM)</div>
     <table>{caprows}</table>
     {ret_block}

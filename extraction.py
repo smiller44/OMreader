@@ -14,6 +14,7 @@ RULES:
 - Set any field to null if not explicitly stated. Never infer or fabricate.
 - "asset_class": return ONLY "A", "B", or "C". Nothing else.
 - "capex_total"/"capex_per_unit": null unless OM explicitly states a renovation budget. Do NOT use replacement reserves.
+- "capex_deferred"/"capex_amenity"/"capex_unit_interior": null unless OM explicitly breaks out these line items.
 - "key_risks": exactly 3 tight analytical bullets synthesized from the OM.
 - "why_this_works": exactly 3 tight analytical bullets.
 - "investment_thesis": exactly 3 bullets on why this fits a value-add MF strategy.
@@ -22,6 +23,10 @@ RULES:
 - All bullets: MAXIMUM 12 words each. No filler. Facts and figures only. No ellipsis (…).
 - Dollar figures: return as strings e.g. "$6,423,039" or "$6.4M".
 - "loss_to_lease": return as a percentage string e.g. "1.5%", NOT a dollar amount.
+- "mgmt_fee_pct": return as a percentage string e.g. "3.0%".
+- "rent_growth_yr1"/"rent_growth_yr2"/"rent_growth_yr3": return as percentage strings e.g. "3.0%".
+- "renov_premium": return as a dollar-per-unit-per-month string e.g. "$150".
+- "hold_period": return as a number string e.g. "5".
 - "retail": if the property has ground-floor or on-site retail, write a brief description (1 sentence). If none, return null.
 - "deal_status": concise e.g. "Unpriced / Call for Offers", "Best & Final", etc.
 - "unit_mix": return as an array of objects with "type" (e.g. "1BR/1BA") and "count" (integer). Empty array if not stated.
@@ -31,16 +36,25 @@ Schema:
   "deal_name": string or null,
   "address": string or null,
   "city_state": string or null,
+  "county": string or null,
+  "msa": string or null,
   "submarket": string or null,
   "asset_class": "A" or "B" or "C" or null,
   "deal_type": string or null,
   "deal_status": string or null,
   "broker": string or null,
+  "gp_owner": string or null,
+  "lp_owner": string or null,
+  "pm_company": string or null,
   "units": string or null,
   "avg_sf": string or null,
   "year_built": string or null,
   "year_renovated": string or null,
+  "acreage": string or null,
   "physical_occupancy": string or null,
+  "economic_occupancy": string or null,
+  "walk_score": string or null,
+  "transit_score": string or null,
   "purchase_price": string or null,
   "price_per_unit": string or null,
   "going_in_cap_rate": string or null,
@@ -49,7 +63,6 @@ Schema:
   "construction_type": string or null,
   "parking": string or null,
   "stories": string or null,
-  "economic_occupancy": string or null,
   "amenities": string or null,
   "unit_mix": [{"type": string, "count": number}] or [],
   "retail": string or null,
@@ -69,17 +82,45 @@ Schema:
   "stab_opex_pct": string or null,
   "stab_noi": string or null,
   "stab_noi_margin": string or null,
+  "capex_deferred": string or null,
+  "capex_amenity": string or null,
+  "capex_unit_interior": string or null,
   "capex_total": string or null,
   "capex_per_unit": string or null,
   "capex_bullets": [string],
+  "closing_costs": string or null,
+  "total_fc_investment": string or null,
+  "loan_costs": string or null,
+  "total_levered_investment": string or null,
+  "loan_amount": string or null,
   "lender": string or null,
   "debt_type": string or null,
   "term_io": string or null,
+  "index_rate": string or null,
+  "spread_cushion": string or null,
   "rate": string or null,
   "ltc_ltv": string or null,
+  "payoff_term": string or null,
+  "refi_ltv": string or null,
+  "refi_rate": string or null,
+  "loc_amount": string or null,
+  "loc_rate": string or null,
   "equity": string or null,
+  "rent_growth_yr1": string or null,
+  "rent_growth_yr2": string or null,
+  "rent_growth_yr3": string or null,
+  "renov_premium": string or null,
+  "mgmt_fee_pct": string or null,
+  "insurance_per_unit": string or null,
+  "hold_period": string or null,
+  "untrended_stab_yield": string or null,
+  "year1_yield": string or null,
+  "year5_yield": string or null,
+  "unlevered_irr": string or null,
+  "unlevered_em": string or null,
   "levered_irr": string or null,
   "equity_multiple": string or null,
+  "levered_gross_em": string or null,
   "avg_coc": string or null,
   "exit_year": string or null,
   "exit_cap": string or null,
