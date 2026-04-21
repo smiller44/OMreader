@@ -23,6 +23,7 @@ RULES:
 - All bullets: MAXIMUM 12 words each. No filler. Facts and figures only. No ellipsis (…).
 - Dollar figures: return as strings e.g. "$6,423,039" or "$6.4M".
 - "loss_to_lease": return as a percentage string e.g. "1.5%", NOT a dollar amount.
+- "t12_basis": the SHORT LABEL used for the historical period, e.g. "T-12", "T-12 Annualized", "2024 Actual". NEVER a dollar figure.
 - "mgmt_fee_pct": return as a percentage string e.g. "3.0%".
 - "rent_growth_yr1"/"rent_growth_yr2"/"rent_growth_yr3": return as percentage strings e.g. "3.0%".
 - "renov_premium": return as a dollar-per-unit-per-month string e.g. "$150".
@@ -155,6 +156,10 @@ def validate_deal_data(data: dict) -> dict:
                   "location_bullets", "capex_bullets", "unit_mix"):
         if not isinstance(data.get(field), list):
             data[field] = []
+    # t12_basis must be a label, never a dollar figure
+    tb = data.get("t12_basis")
+    if tb and re.search(r"\$[\d,]", tb):
+        data["t12_basis"] = None
     return data
 
 
