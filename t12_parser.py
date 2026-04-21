@@ -320,6 +320,9 @@ def parse_t12(file_bytes: bytes) -> dict:
     # ── Parse every detail line item ────────────────────────────────────────────
     line_items: list[dict] = []   # for T12 Intake (one row per source line)
     coa: dict[str, list[float]] = {}  # for summary aggregation
+    reported_noi = None  # seller's stated NOI total → written to T12 Intake S40
+
+    _NOI_PATTERNS = ("net operating income", "net operating cash flow", "operating cash flow")
 
     for r in range(hdr_row + 1, ws.max_row + 1):
         acct_raw = ws.cell(r, 1).value
@@ -330,8 +333,10 @@ def parse_t12(file_bytes: bytes) -> dict:
         acct_str = str(acct_raw).strip()
         name_str = str(name_raw).strip()
 
-        # Skip subtotal/total rows
+        # Skip subtotal/total rows — but capture seller's NOI first
         if any(p in name_str.lower() for p in _SKIP_PATTERNS):
+            if reported_noi is None and any(p in name_str.lower() for p in _NOI_PATTERNS):
+                reported_noi = _to_float(ws.cell(r, total_col).value)
             continue
 
         prefix = _acct_prefix(acct_str)
@@ -410,11 +415,12 @@ def parse_t12(file_bytes: bytes) -> dict:
     }
 
     return {
-        "period":     f"{months[0]} – {months[-1]}" if months else "",
-        "months":     months,
-        "n_months":   n_months,
-        "line_items": line_items,
-        "coa":        result_coa,
-        "summary":    summary,
+        "period":       f"{months[0]} – {months[-1]}" if months else "",
+        "months":       months,
+        "n_months":     n_months,
+        "line_items":   line_items,
+        "coa":          result_coa,
+        "summary":      summary,
+        "reported_noi": reported_noi,
         "_gpr": gpr, "_egi": egi, "_total_opex": total_opex, "_noi": noi,
     }

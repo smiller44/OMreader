@@ -110,6 +110,11 @@ def _fill_t12_intake(ws_intake, t12_parsed: dict):
         ws_intake.cell(data_row, COL_COA).value   = item["coa_label"]
         data_row += 1
 
+    # Write seller's reported NOI to S40 so T12 Clean O59=0 and O60="MATCH"
+    reported_noi = t12_parsed.get("reported_noi")
+    if reported_noi is not None:
+        ws_intake.cell(40, 19).value = round(reported_noi, 2)
+
 
 def build_excel(data: dict, t12_parsed=None, whisper: str = "") -> bytes:
     """
