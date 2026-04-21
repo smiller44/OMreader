@@ -19,7 +19,7 @@ RULES:
 - "investment_thesis": exactly 3 bullets on why this fits a value-add MF strategy.
 - "business_plan": exactly 3 bullets on strategy, rent uplift, hold period, capex plan.
 - "location_bullets": exactly 3 bullets on submarket, employers, transit, supply/lifestyle.
-- All bullets: MAXIMUM 1 sentence each. Be concise. NEVER use ellipsis (…). Write complete sentences only.
+- All bullets: MAXIMUM 12 words each. No filler. Facts and figures only. No ellipsis (…).
 - Dollar figures: return as strings e.g. "$6,423,039" or "$6.4M".
 - "loss_to_lease": return as a percentage string e.g. "1.5%", NOT a dollar amount.
 - "retail": if the property has ground-floor or on-site retail, write a brief description (1 sentence). If none, return null.
