@@ -356,7 +356,10 @@ def _classify_unmapped(unmapped: list, api_key: str) -> dict:
         "Rules:\n"
         "- Assign each prefix to exactly one COA code\n"
         "- Prefer specific codes over generic ones (e.g. 'pkg' over 'oinc' for parking)\n"
-        "- Use 'nai'/'nae' only for truly non-operating items (interest, depreciation, entity distributions)\n"
+        "- Use 'nai'/'nae' ONLY for truly non-operating items: interest expense, depreciation, amortization, "
+        "entity distributions, owner draws — NEVER for rent income of any kind\n"
+        "- CRITICAL: Any item containing 'rent', 'GPR', 'gross potential', 'market rate', 'scheduled rent', "
+        "'potential rent', or 'residential rent' MUST be classified as 'mkt'. NEVER classify rent income as 'nai' or 'nae'\n"
         "- Return ONLY a valid JSON object: {\"<prefix>\": \"<coa_code>\", ...}"
     )
     try:
