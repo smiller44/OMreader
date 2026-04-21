@@ -226,25 +226,25 @@ _HTML_CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 1100px; font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.4; }
 
-.hdr { background: linear-gradient(130deg, #002D72 0%, #1a52b0 100%); border-top: 3px solid #C8952A; padding: 13px 22px 11px; }
+.hdr { background: linear-gradient(130deg, #1B5BAE 0%, #2470D4 100%); padding: 13px 22px 11px; }
 .deal-name { font-size: 22px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 3px; }
-.deal-sub  { font-size: 11px; color: #b8cfe8; margin-bottom: 2px; }
-.deal-badges { font-size: 9.5px; color: #8ab0d4; }
-.mesirow-brand { font-size: 8px; font-weight: 700; color: #C8952A; letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
+.deal-sub  { font-size: 11px; color: #c0d8f5; margin-bottom: 2px; }
+.deal-badges { font-size: 9.5px; color: #8ab8e8; }
+.mesirow-brand { font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.55); letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
 
-.strip { background: #003A8C; display: flex; border-bottom: 1px solid #002D72; }
-.stat { flex: 1; padding: 8px 12px; border-right: 1px solid #002D72; }
+.strip { background: #174d9a; display: flex; border-bottom: 1px solid #1B5BAE; }
+.stat { flex: 1; padding: 8px 12px; border-right: 1px solid #1B5BAE; }
 .stat:last-child { border-right: none; }
-.sl { font-size: 7px; font-weight: 600; color: #7b9ec4; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }
+.sl { font-size: 7px; font-weight: 600; color: #7bacd8; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }
 .sv { font-size: 12px; font-weight: 700; color: #f3f4f6; }
-.dim { color: #4a6fa5 !important; }
+.dim { color: #4a7ab5 !important; }
 
 .body { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 2px solid #e5e7eb; }
 .col-l { padding: 12px 16px; background: #ffffff; border-right: 2px solid #e5e7eb; }
 .col-r { padding: 12px 16px; background: #f9fafb; }
 
-.sec { font-size: 8px; font-weight: 700; color: #002D72; text-transform: uppercase; letter-spacing: .12em;
-       padding-bottom: 4px; border-bottom: 2px solid #002D72; margin-bottom: 8px; margin-top: 12px; }
+.sec { font-size: 8px; font-weight: 700; color: #1B5BAE; text-transform: uppercase; letter-spacing: .12em;
+       padding-bottom: 4px; border-bottom: 2px solid #1B5BAE; margin-bottom: 8px; margin-top: 12px; }
 .sec:first-child { margin-top: 0; }
 
 ul { list-style: none; padding: 0; margin: 0; }
@@ -273,8 +273,8 @@ table { width: 100%; border-collapse: collapse; }
 .sens-tbl th { padding: 3px 10px; text-align: left; font-size: 7px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; border-bottom: 1px solid #e5e7eb; }
 .sens-tbl td { padding: 3px 10px; font-size: 10px; color: #111827; border-bottom: 1px solid #f3f4f6; }
 .sens-tbl .sc { color: #6b7280; font-size: 9px; }
-.sens-hl { background: #e8eef8 !important; }
-.sens-hl td { color: #002D72 !important; font-weight: 700; }
+.sens-hl { background: #deeaf8 !important; }
+.sens-hl td { color: #1B5BAE !important; font-weight: 700; }
 
 .mid { display: grid; grid-template-columns: 1fr 1fr; background: #f3f4f6; border-bottom: 2px solid #e5e7eb; }
 .mid .col-l { background: #f3f4f6; border-right: 2px solid #e5e7eb; }
