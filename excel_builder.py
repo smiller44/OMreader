@@ -110,10 +110,15 @@ def _fill_t12_intake(ws_intake, t12_parsed: dict):
         ws_intake.cell(data_row, COL_COA).value   = item["coa_label"]
         data_row += 1
 
-    # Write seller's reported NOI to S40 so T12 Clean O59=0 and O60="MATCH"
+    # Write a visible "Net Operating Income" summary row after all line items
+    noi_row = data_row
+    ws_intake.cell(noi_row, COL_NAME).value = "Net Operating Income"
     reported_noi = t12_parsed.get("reported_noi")
     if reported_noi is not None:
-        ws_intake.cell(40, 19).value = round(reported_noi, 2)
+        ws_intake.cell(noi_row, COL_TOTAL).value = round(reported_noi, 2)
+
+    # S40 references the NOI row formulaically so it updates if the row is edited
+    ws_intake.cell(40, 19).value = f"=P{noi_row}"
 
 
 def build_excel(data: dict, t12_parsed=None, whisper: str = "") -> bytes:
