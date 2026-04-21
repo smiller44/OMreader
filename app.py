@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import streamlit as st
 
 from config import CONFIG, logger
-from database import db_load_pipeline, db_upsert_deal, db_delete_deal, fetch_pdf
+from database import db_load_pipeline, db_upsert_deal, db_upsert_qv, db_delete_deal, fetch_pdf, fetch_excel
 from excel_builder import build_excel
 from extraction import extract_text, call_claude
 from images import build_image_queries, serp_search_with_fallback, get_map_image, img_to_b64
@@ -44,37 +44,83 @@ section[data-testid="stSidebar"] {
 }
 section[data-testid="stSidebar"] > div {
     background: #0D1B2A !important;
+    padding-top: 1.2rem !important;
 }
 section[data-testid="stSidebar"] p,
 section[data-testid="stSidebar"] span,
-section[data-testid="stSidebar"] small,
-section[data-testid="stSidebar"] caption {
+section[data-testid="stSidebar"] small {
     color: #8FA8C4 !important;
 }
 section[data-testid="stSidebar"] h3 {
     color: #FFFFFF !important;
-    font-size: 13px !important;
+    font-size: 11px !important;
     font-weight: 700 !important;
-    letter-spacing: 0.08em !important;
+    letter-spacing: 0.12em !important;
     text-transform: uppercase !important;
+    margin-bottom: 2px !important;
 }
-section[data-testid="stSidebar"] strong { color: #C8D6E8 !important; }
-section[data-testid="stSidebar"] hr { border-color: #1E2F45 !important; opacity: 1 !important; }
-section[data-testid="stSidebar"] .stDownloadButton > button {
-    background: #1B5BAE !important;
-    color: #ffffff !important;
-    border: none !important;
-    border-radius: 4px !important;
+section[data-testid="stSidebar"] hr {
+    border-color: #1A2E45 !important;
+    opacity: 1 !important;
+    margin: 6px 0 !important;
+}
+/* Deal cards */
+.deal-card {
+    background: #122035;
+    border: 1px solid #1E2F45;
+    border-radius: 6px;
+    padding: 8px 10px 6px;
+    margin-bottom: 6px;
+}
+.deal-card-name {
     font-size: 12px !important;
     font-weight: 600 !important;
+    color: #D4E3F5 !important;
+    line-height: 1.3 !important;
+    margin-bottom: 2px !important;
 }
+.deal-card-meta {
+    font-size: 10px !important;
+    color: #5A7A9A !important;
+    margin-bottom: 6px !important;
+}
+.msa-label {
+    font-size: 9px;
+    font-weight: 700;
+    color: #3A5A7A;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin: 10px 0 4px;
+}
+/* Sidebar download buttons */
+section[data-testid="stSidebar"] .stDownloadButton > button {
+    background: #163354 !important;
+    color: #A8C8E8 !important;
+    border: 1px solid #1E3F60 !important;
+    border-radius: 4px !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    padding: 4px 0 !important;
+    letter-spacing: 0.03em !important;
+    width: 100% !important;
+}
+section[data-testid="stSidebar"] .stDownloadButton > button:hover {
+    background: #1B5BAE !important;
+    color: #fff !important;
+    border-color: #1B5BAE !important;
+}
+/* Sidebar remove button */
 section[data-testid="stSidebar"] .stButton > button {
     background: transparent !important;
-    border: 1px solid #2A3F5F !important;
+    border: none !important;
+    color: #2E4A65 !important;
+    font-size: 13px !important;
+    padding: 0 4px !important;
+    line-height: 1 !important;
+    min-height: unset !important;
+}
+section[data-testid="stSidebar"] .stButton > button:hover {
     color: #8FA8C4 !important;
-    font-size: 12px !important;
-    padding: 2px 6px !important;
-    border-radius: 4px !important;
 }
 
 /* ── Tabs ──────────────────────────────────────────────────────────── */
@@ -266,24 +312,54 @@ def _slugs(data: dict) -> tuple[str, str]:
 
 def _pipeline_upsert(key, data, pdf_bytes, filename, whisper):
     pdf_path = "deals/" + re.sub(r"[^\w.-]", "_", key)
-    existing = next((i for i, e in enumerate(st.session_state.pipeline)
-                     if e["processed_file"] == key), None)
+    existing_idx = next((i for i, e in enumerate(st.session_state.pipeline)
+                         if e["processed_file"] == key), None)
+    base = st.session_state.pipeline[existing_idx] if existing_idx is not None else {}
     entry = {
+        **base,
         "deal_name":      data.get("deal_name") or "Unknown Deal",
         "city_state":     data.get("city_state") or "",
         "units":          data.get("units") or "",
         "whisper":        whisper,
         "filename":       filename,
         "pdf_path":       pdf_path,
+        "excel_path":     base.get("excel_path", ""),
+        "excel_filename": base.get("excel_filename", ""),
         "processed_file": key,
         "ts":             datetime.now(timezone.utc),
         "deal_data":      data,
     }
-    if existing is not None:
-        st.session_state.pipeline[existing] = entry
+    if existing_idx is not None:
+        st.session_state.pipeline[existing_idx] = entry
     else:
         st.session_state.pipeline.append(entry)
     db_upsert_deal(entry, pdf_bytes)
+
+
+def _pipeline_upsert_qv(key, data, excel_bytes, excel_filename, whisper):
+    excel_path = "excels/" + re.sub(r"[^\w.-]", "_", key)
+    existing_idx = next((i for i, e in enumerate(st.session_state.pipeline)
+                         if e["processed_file"] == key), None)
+    base = st.session_state.pipeline[existing_idx] if existing_idx is not None else {}
+    entry = {
+        **base,
+        "deal_name":      data.get("deal_name") or "Unknown Deal",
+        "city_state":     data.get("city_state") or "",
+        "units":          data.get("units") or "",
+        "whisper":        whisper,
+        "filename":       base.get("filename", excel_filename),
+        "pdf_path":       base.get("pdf_path", ""),
+        "excel_path":     excel_path,
+        "excel_filename": excel_filename,
+        "processed_file": key,
+        "ts":             base.get("ts") or datetime.now(timezone.utc),
+        "deal_data":      {**base.get("deal_data", {}), **data},
+    }
+    if existing_idx is not None:
+        st.session_state.pipeline[existing_idx] = entry
+    else:
+        st.session_state.pipeline.append(entry)
+    db_upsert_qv(entry, excel_bytes)
 
 
 def _upload_label(text: str, required: bool):
@@ -294,52 +370,79 @@ def _upload_label(text: str, required: bool):
 # ── SIDEBAR: DEAL PIPELINE ────────────────────────────────────────────────────
 
 with st.sidebar:
-    st.markdown("### Deal Pipeline")
+    st.markdown("### Pipeline")
     if not st.session_state.pipeline:
         st.caption("No deals yet.")
     else:
         n = len(st.session_state.pipeline)
         st.caption(f"{n} deal{'s' if n != 1 else ''}")
-        st.divider()
 
         groups: dict[str, list] = {}
         for idx, deal in enumerate(st.session_state.pipeline):
             groups.setdefault(msa_for_deal(deal), []).append((idx, deal))
 
         def _ts_key(d):
-            ts = d["ts"]
-            # Normalize to a plain string so tz-aware and tz-naive datetimes never collide
-            return str(ts)
+            return str(d["ts"])
 
         for msa, entries in sorted(groups.items(),
                                    key=lambda g: max(_ts_key(d) for _, d in g[1]),
                                    reverse=True):
-            st.markdown(f"**{msa.upper()}**")
+            st.markdown(f'<div class="msa-label">{msa}</div>', unsafe_allow_html=True)
+
             for real_idx, deal in sorted(entries, key=lambda x: _ts_key(x[1]), reverse=True):
-                meta = "  ·  ".join(x for x in [
-                    f"{deal['units']} units" if deal["units"] else "",
-                    deal["whisper"] if deal["whisper"] else "",
-                ] if x)
-                st.markdown(f"&nbsp;&nbsp;{deal['deal_name']}")
-                if meta:
-                    st.caption(f"&nbsp;&nbsp;{meta}")
-                col1, col2 = st.columns([4, 1])
-                with col1:
-                    pdf_bytes = fetch_pdf(deal["pdf_path"], deal["ts"])
-                    st.download_button(
-                        "⬇ Download",
-                        data=pdf_bytes or b"",
-                        file_name=deal["filename"],
-                        mime="application/pdf",
-                        key=f"dl_{real_idx}",
-                        use_container_width=True,
-                        disabled=pdf_bytes is None,
+                meta_parts = [
+                    f"{deal['units']} units" if deal.get("units") else "",
+                    deal["whisper"] if deal.get("whisper") else "",
+                ]
+                meta = "  ·  ".join(p for p in meta_parts if p)
+
+                has_pdf = bool(deal.get("pdf_path"))
+                has_xl  = bool(deal.get("excel_path"))
+
+                name_col, x_col = st.columns([10, 1])
+                with name_col:
+                    st.markdown(
+                        f'<div class="deal-card-name">{deal["deal_name"]}</div>'
+                        + (f'<div class="deal-card-meta">{meta}</div>' if meta else ""),
+                        unsafe_allow_html=True,
                     )
-                with col2:
-                    if st.button("✕", key=f"rm_{real_idx}", help="Remove"):
-                        db_delete_deal(deal["processed_file"], deal["pdf_path"])
+                with x_col:
+                    if st.button("✕", key=f"rm_{real_idx}", help="Remove deal"):
+                        db_delete_deal(deal["processed_file"],
+                                       deal.get("pdf_path", ""),
+                                       deal.get("excel_path", ""))
                         st.session_state.pipeline.pop(real_idx)
                         st.rerun()
+
+                if has_pdf and has_xl:
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        pdf_b = fetch_pdf(deal["pdf_path"], deal["ts"])
+                        st.download_button("↓ 1-Pager", data=pdf_b or b"",
+                            file_name=deal["filename"], mime="application/pdf",
+                            key=f"dl_pdf_{real_idx}", use_container_width=True,
+                            disabled=not pdf_b)
+                    with c2:
+                        xl_b = fetch_excel(deal["excel_path"], deal["ts"])
+                        st.download_button("↓ QuickVal", data=xl_b or b"",
+                            file_name=deal.get("excel_filename", "model.xlsx"),
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key=f"dl_xl_{real_idx}", use_container_width=True,
+                            disabled=not xl_b)
+                elif has_pdf:
+                    pdf_b = fetch_pdf(deal["pdf_path"], deal["ts"])
+                    st.download_button("↓ 1-Pager", data=pdf_b or b"",
+                        file_name=deal["filename"], mime="application/pdf",
+                        key=f"dl_pdf_{real_idx}", use_container_width=True,
+                        disabled=not pdf_b)
+                elif has_xl:
+                    xl_b = fetch_excel(deal["excel_path"], deal["ts"])
+                    st.download_button("↓ QuickVal", data=xl_b or b"",
+                        file_name=deal.get("excel_filename", "model.xlsx"),
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"dl_xl_{real_idx}", use_container_width=True,
+                        disabled=not xl_b)
+
             st.divider()
 
 # ── TABS ──────────────────────────────────────────────────────────────────────
@@ -587,6 +690,10 @@ with tab_qv:
         st.session_state.qv_t12      = qv_t12_parsed
         st.session_state.qv_whisper  = ""
         st.session_state.qv_filename = qv_filename
+
+        # Pipeline key: use OM filename if OM uploaded (links to 1-pager entry), else T12
+        qv_pipeline_key = qv_om_file.name if qv_om_file else qv_t12_file.name
+        _pipeline_upsert_qv(qv_pipeline_key, qv_data, excel_out, qv_filename, "")
 
     if st.session_state.qv_excel is not None:
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
