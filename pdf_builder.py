@@ -174,12 +174,8 @@ def _build_stat_strip(data: dict, whisper: str) -> tuple[str, float | None, int 
     return stat_html, w_val, u_val
 
 def _build_pricing_metrics(data: dict, w_val: float | None, u_val: int | None) -> tuple[str, str]:
-    pp_card  = nv(data.get("purchase_price")) or (fmt_price(w_val) if w_val else None)
-    ppu_card = nv(data.get("price_per_unit")) or (fmt_price(w_val / u_val) if (w_val and u_val) else None)
-    pp_label = "Whisper Price" if (w_val and not nv(data.get("purchase_price"))) else "Purchase Price"
-    capex_met  = met([(pp_label, pp_card), ("Price / Unit", ppu_card)])
-    capex_met += met([("Capex Total", nv(data.get("capex_total"))), ("Capex / Unit", nv(data.get("capex_per_unit")))])
-    rent_met   = met([
+    capex_met = met([("Capex Total", nv(data.get("capex_total"))), ("Capex / Unit", nv(data.get("capex_per_unit")))])
+    rent_met  = met([
         ("In-Place Rent",  nv(data.get("in_place_rent"))),
         ("Pro Forma Rent", nv(data.get("pro_forma_rent"))),
         ("Loss-to-Lease",  nv(data.get("loss_to_lease"))),
@@ -230,11 +226,11 @@ _HTML_CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 1100px; font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.4; }
 
-.hdr { background: #002D72; padding: 13px 22px 11px; }
+.hdr { background: linear-gradient(130deg, #002D72 0%, #1a52b0 100%); border-top: 3px solid #C8952A; padding: 13px 22px 11px; }
 .deal-name { font-size: 22px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 3px; }
-.deal-sub  { font-size: 11px; color: #a8bcd8; margin-bottom: 2px; }
-.deal-badges { font-size: 9.5px; color: #7b9ec4; }
-.mesirow-brand { font-size: 8px; font-weight: 700; color: #a8bcd8; letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
+.deal-sub  { font-size: 11px; color: #b8cfe8; margin-bottom: 2px; }
+.deal-badges { font-size: 9.5px; color: #8ab0d4; }
+.mesirow-brand { font-size: 8px; font-weight: 700; color: #C8952A; letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
 
 .strip { background: #003A8C; display: flex; border-bottom: 1px solid #002D72; }
 .stat { flex: 1; padding: 8px 12px; border-right: 1px solid #002D72; }
