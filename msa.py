@@ -178,6 +178,76 @@ _CITY_TO_MSA: dict[tuple[str, str], str] = {
 }
 
 
+MSA_OPTIONS: list[str] = [
+    "Anaheim-Santa Ana-Irvine", "Atlanta", "Austin", "Baltimore", "Boston",
+    "Boulder", "Bridgeport-Stamford", "Charleston", "Charlotte", "Chicago",
+    "Dallas-Plano-Irving", "Denver", "Ft. Lauderdale-Pompano", "Ft. Worth-Arlington",
+    "Greenville", "Houston", "Jacksonville", "L.A. - Long Beach-Glendale",
+    "Las Vegas", "Miami-Kendall", "Minneapolis-St. Paul", "N. Port-Sarasota-Bradenton",
+    "Naples-Marco Island", "Nashville", "Nassau Co. - Suffolk Co.", "New York-White Plains",
+    "Newark-Jersey City", "Oakland-Hayward-Berkeley", "Orlando", "Oxnard-Thousand Oaks",
+    "Palm Bay-Melbourne", "Philadelphia", "Phoenix", "Portfolio", "Portland",
+    "Raleigh", "Riverside-San Bernardino", "Salt Lake City", "San Antonio",
+    "San Diego", "San Francisco", "San Jose-Sunnyvale-S. Clara",
+    "Santa Maria-Santa Barbara", "Santa Rosa", "Seattle", "Tacoma-Lakewood",
+    "Tampa-St. Pete", "Vallejo/Fairfield/Napa", "Washington-Northern VA",
+    "West Palm-Boca-Delray", "Worcester",
+]
+
+COUNTY_OPTIONS: list[str] = [
+    "Arapahoe", "Arlington", "Bergen", "Broward", "Charleston", "Chester",
+    "Clark", "Cobb", "Collin", "Cook", "Dallas", "Davidson", "DeKalb",
+    "Denton", "Denver", "Douglas", "DuPage", "Durham", "Durham/Orange",
+    "Forsyth", "Fulton", "Gwinnett", "Harris", "Hennepin", "Hillsborough",
+    "Iredell", "Jefferson", "Kane", "King", "Los Angeles", "Manatee",
+    "Maricopa", "Marietta", "Martin", "Mecklenburg", "Miami-Dade", "Middlesex",
+    "Multnomah", "Orange", "Osceola", "Palm Beach", "Pinellas", "Portfolio",
+    "Prince William", "San Bernardino", "San Diego", "Seminole", "Suffolk",
+    "Tarrant", "Travis", "Ventura", "Wake", "Williamson",
+]
+
+STATE_OPTIONS: list[str] = [
+    "AZ", "CA", "CO", "CT", "DC", "FL", "GA", "IL", "MA", "MD",
+    "MN", "NC", "NJ", "NV", "NY", "OR", "PA", "SC", "TN", "TX",
+    "UT", "VA", "WA",
+]
+
+SUBMARKET_OPTIONS: list[str] = [
+    "Addison/Bent Tree", "Airport Area", "Alamo Heights", "Alief",
+    "Allen/McKinney", "Aloha/West Beaverton", "Alpharetta/Cumming",
+    "Altamonte Springs/Apopka", "Anderson", "Annapolis", "Anoka County",
+    "Antelope Valley", "Arboretum", "Arlington",
+    "Arlington Heights/Palatine/Wheeling", "Arvada/Golden", "Aurora",
+    "Avondale/Goodyear/West Glendale", "Ballantyne", "Baltimore City East",
+    "Baltimore City North", "Baltimore City West", "Baymeadows", "Baytown",
+    "Bear Creek", "Bergen County", "Bethesda/Chevy Chase", "Bloomington",
+    "Boca Raton", "Boulder", "Boynton Beach/Delray Beach", "Bradenton",
+    "Braeswood Place/Astrodome/South Union",
+    "Brandon/Southeast Hillsborough County", "Brazoria County",
+    "Brentwood/Westwood/Beverly Hills", "Briarcliff", "Bridgeport/Danbury",
+    "Bronx", "Bronzeville/Hyde Park/South Shore", "Brooklyn", "Broomfield",
+    "Buckhead", "Bucks County", "Buena Park/Cypress",
+    "Burbank/Glendale/Pasadena", "Burleson/Johnson County",
+    "Burlington County", "Burnsville/Apple Valley", "Camarillo",
+    "Cambridge/Somerville",
+]
+
+TYPE_OPTIONS: list[str] = [
+    "Garden / tbd", "Garden / Wood", "Garden / Concrete", "Garden / Steel",
+    "Garden HD / tbd", "Garden HD / Wood", "Garden HD / Concrete", "Garden HD / Steel",
+    "Mid-Rise Wrap / tbd", "Mid-Rise Wrap / Wood", "Mid-Rise Wrap / Concrete", "Mid-Rise Wrap / Steel",
+    "Mid-Rise Podium / tbd", "Mid-Rise Podium / Wood", "Mid-Rise Podium / Concrete", "Mid-Rise Podium / Steel",
+    "High-Rise / tbd", "High-Rise / Wood", "High-Rise / Concrete", "High-Rise / Steel",
+    "Other",
+]
+
+BROKERAGE_OPTIONS: list[str] = [
+    "Berkadia", "C&W", "CBRE", "Eastdil", "Engler", "IPA", "JLL",
+    "Kidder Mathews", "Newmark", "Northmarq", "W&D", "W&D / Engler",
+    "BlueGate", "Patterson", "Colliers", "Bravo & Partners", "none",
+]
+
+
 def msa_for_deal(deal: dict) -> str:
     """Return the MSA label for a deal dict, falling back to raw city name."""
     cs = deal.get("city_state", "")
