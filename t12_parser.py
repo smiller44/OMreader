@@ -300,9 +300,101 @@ def _to_float(v) -> float:
     return 0.0
 
 
+def _pdf_to_rows(file_bytes: bytes) -> list[list]:
+    """
+    Extract all table rows from a PDF T12 using pdfplumber.
+    Returns a flat list of rows (each row = list of cell strings).
+    """
+    import pdfplumber
+    all_rows = []
+    with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        for page in pdf.pages:
+            tables = page.extract_tables()
+            for tbl in (tables or []):
+                for row in tbl:
+                    if any(c for c in row if c):
+                        all_rows.append([str(c).strip() if c else "" for c in row])
+    return all_rows
+
+
+def _detect_header_row_pdf(rows: list[list]):
+    """
+    Find the header row in a flat list of PDF table rows.
+    Returns (header_idx, first_data_col_idx, total_col_idx, month_labels).
+    """
+    import re
+    month_re = re.compile(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[- ]\d{4}", re.I)
+    for i, row in enumerate(rows):
+        months = [(ci, v) for ci, v in enumerate(row) if month_re.match(v)]
+        if len(months) >= 6:
+            first_col = months[0][0]
+            month_labels = [v for _, v in months]
+            # normalize separator: "Jan-2025" → "Jan 2025"
+            month_labels = [re.sub(r"[-]", " ", m) for m in month_labels]
+            # find Total col — first col after last month that looks like "Total" or is last col
+            total_col = None
+            for ci, v in enumerate(row):
+                if v.strip().lower() == "total":
+                    total_col = ci
+                    break
+            if total_col is None:
+                total_col = months[-1][0] + 1
+            return i, first_col, total_col, month_labels
+    raise ValueError("Could not detect month header row in PDF T12.")
+
+
+def _parse_t12_from_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, months: list[str]):
+    """Shared parse logic that works on a flat list of string rows."""
+    import re
+    n_months = total_col - first_col
+    line_items = []
+    coa = {}
+    reported_noi = None
+
+    _NOI_PATTERNS = ("net operating income", "net operating cash flow", "operating cash flow")
+
+    for row in rows[hdr_idx + 1:]:
+        if len(row) <= total_col:
+            continue
+        acct_raw = row[0].strip()
+        name_raw = row[1].strip() if len(row) > 1 else ""
+        if not acct_raw or not name_raw:
+            continue
+
+        name_lower = name_raw.lower()
+
+        if any(p in name_lower for p in _SKIP_PATTERNS):
+            if reported_noi is None and any(p in name_lower for p in _NOI_PATTERNS):
+                reported_noi = _to_float(row[total_col])
+            continue
+
+        prefix = _acct_prefix(acct_raw)
+        coa_code = _ACCT_TO_COA.get(prefix)
+        if not coa_code:
+            continue
+
+        monthly = [_to_float(row[first_col + i] if first_col + i < len(row) else 0) for i in range(n_months)]
+
+        line_items.append({
+            "acct":      acct_raw,
+            "name":      name_raw,
+            "coa_code":  coa_code,
+            "coa_label": COA_INTAKE_LABEL.get(coa_code, coa_code),
+            "monthly":   monthly,
+            "total":     sum(monthly),
+        })
+
+        if coa_code not in coa:
+            coa[coa_code] = [0.0] * n_months
+        for i, v in enumerate(monthly):
+            coa[coa_code][i] += v
+
+    return line_items, coa, reported_noi
+
+
 def parse_t12(file_bytes: bytes) -> dict:
     """
-    Parse a T12 operating statement Excel export.
+    Parse a T12 operating statement (Excel or PDF).
     Returns a dict with:
       - period: "Mar 2025 – Feb 2026"
       - months: list of month label strings
@@ -310,57 +402,57 @@ def parse_t12(file_bytes: bytes) -> dict:
       - line_items: list of every mapped detail line (for T12 Intake)
       - coa: {code: {"label": str, "monthly": [float*n], "total": float}}  (aggregated)
       - summary: pre-computed strings for the 1-pager
+      - reported_noi: seller's stated NOI total (written to T12 Intake S40)
     """
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
-    ws = wb.active
+    is_pdf = file_bytes[:4] == b"%PDF"
 
-    hdr_row, first_col, total_col, months = _detect_header_row(ws)
-    n_months = total_col - first_col
+    if is_pdf:
+        rows = _pdf_to_rows(file_bytes)
+        hdr_idx, first_col, total_col, months = _detect_header_row_pdf(rows)
+        n_months = total_col - first_col
+        line_items, coa, reported_noi = _parse_t12_from_rows(rows, hdr_idx, first_col, total_col, months)
+    else:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+        hdr_row, first_col, total_col, months = _detect_header_row(ws)
+        n_months = total_col - first_col
 
-    # ── Parse every detail line item ────────────────────────────────────────────
-    line_items: list[dict] = []   # for T12 Intake (one row per source line)
-    coa: dict[str, list[float]] = {}  # for summary aggregation
-    reported_noi = None  # seller's stated NOI total → written to T12 Intake S40
+        line_items = []
+        coa = {}
+        reported_noi = None
+        _NOI_PATTERNS = ("net operating income", "net operating cash flow", "operating cash flow")
 
-    _NOI_PATTERNS = ("net operating income", "net operating cash flow", "operating cash flow")
+        for r in range(hdr_row + 1, ws.max_row + 1):
+            acct_raw = ws.cell(r, 1).value
+            name_raw = ws.cell(r, 2).value
+            if not acct_raw or not name_raw:
+                continue
+            acct_str = str(acct_raw).strip()
+            name_str = str(name_raw).strip()
 
-    for r in range(hdr_row + 1, ws.max_row + 1):
-        acct_raw = ws.cell(r, 1).value
-        name_raw = ws.cell(r, 2).value
-        if not acct_raw or not name_raw:
-            continue
+            if any(p in name_str.lower() for p in _SKIP_PATTERNS):
+                if reported_noi is None and any(p in name_str.lower() for p in _NOI_PATTERNS):
+                    reported_noi = _to_float(ws.cell(r, total_col).value)
+                continue
 
-        acct_str = str(acct_raw).strip()
-        name_str = str(name_raw).strip()
+            prefix = _acct_prefix(acct_str)
+            coa_code = _ACCT_TO_COA.get(prefix)
+            if not coa_code:
+                continue
 
-        # Skip subtotal/total rows — but capture seller's NOI first
-        if any(p in name_str.lower() for p in _SKIP_PATTERNS):
-            if reported_noi is None and any(p in name_str.lower() for p in _NOI_PATTERNS):
-                reported_noi = _to_float(ws.cell(r, total_col).value)
-            continue
-
-        prefix = _acct_prefix(acct_str)
-        coa_code = _ACCT_TO_COA.get(prefix)
-        if not coa_code:
-            continue
-
-        monthly = [_to_float(ws.cell(r, first_col + i).value) for i in range(n_months)]
-
-        # Store individual line item for T12 Intake
-        line_items.append({
-            "acct":      acct_str,
-            "name":      name_str.strip(),
-            "coa_code":  coa_code,
-            "coa_label": COA_INTAKE_LABEL.get(coa_code, coa_code),
-            "monthly":   monthly,
-            "total":     sum(monthly),
-        })
-
-        # Aggregate into COA buckets for summary
-        if coa_code not in coa:
-            coa[coa_code] = [0.0] * n_months
-        for i, v in enumerate(monthly):
-            coa[coa_code][i] += v
+            monthly = [_to_float(ws.cell(r, first_col + i).value) for i in range(n_months)]
+            line_items.append({
+                "acct":      acct_str,
+                "name":      name_str,
+                "coa_code":  coa_code,
+                "coa_label": COA_INTAKE_LABEL.get(coa_code, coa_code),
+                "monthly":   monthly,
+                "total":     sum(monthly),
+            })
+            if coa_code not in coa:
+                coa[coa_code] = [0.0] * n_months
+            for i, v in enumerate(monthly):
+                coa[coa_code][i] += v
 
     # Build aggregated coa dict
     result_coa = {
