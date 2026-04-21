@@ -76,6 +76,12 @@ def build_image_queries(deal_name: str | None, address: str | None, city_state: 
             f"{n} apartments amenity",
             f"{n} multifamily amenity",
         ],
+        "amenity2": [
+            f"{n} {cs} apartment pool outdoor",
+            f"{n} {cs} apartment fitness center",
+            f"{n} apartments rooftop lounge",
+            f"{n} multifamily resort pool amenity",
+        ],
         "kitchen": [
             f"{n} {cs} apartment kitchen",
             f"{n} {cs} apartment unit interior",

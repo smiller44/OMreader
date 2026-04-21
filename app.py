@@ -422,8 +422,9 @@ with st.sidebar:
 
         groups: dict[str, list] = {}
         for idx, deal in enumerate(st.session_state.pipeline):
-            cs = deal.get("city_state", "")
-            city = cs.split(",")[0].strip().title() or "Other"
+            msa_raw = (deal.get("deal_data") or {}).get("msa") or deal.get("city_state", "")
+            # Primary city from MSA: "Boston-Cambridge-Newton, MA-NH" → "Boston"
+            city = re.split(r"[-,]", msa_raw)[0].strip().title() or "Other"
             groups.setdefault(city, []).append((idx, deal))
 
         def _ts_key(d):
@@ -523,17 +524,19 @@ with tab_pg:
             queries = build_image_queries(data.get("deal_name"), data.get("address"), data.get("city_state"))
             st.write("Fetching property images and market data...")
             try:
-                with ThreadPoolExecutor(max_workers=7) as ex:
-                    f_ext = ex.submit(serp_search_with_fallback, queries["exterior"], serp_key)
-                    f_am  = ex.submit(serp_search_with_fallback, queries["amenity"],  serp_key)
-                    f_ki  = ex.submit(serp_search_with_fallback, queries["kitchen"],  serp_key)
+                with ThreadPoolExecutor(max_workers=8) as ex:
+                    f_ext = ex.submit(serp_search_with_fallback, queries["exterior"],  serp_key)
+                    f_am  = ex.submit(serp_search_with_fallback, queries["amenity"],   serp_key)
+                    f_am2 = ex.submit(serp_search_with_fallback, queries["amenity2"],  serp_key)
+                    f_ki  = ex.submit(serp_search_with_fallback, queries["kitchen"],   serp_key)
                     f_map = ex.submit(get_map_image, data.get("address"), data.get("city_state"), maps_key)
                     f_wt  = ex.submit(get_walk_transit, data.get("address", ""), data.get("city_state", ""), maps_key, walkscore_key)
                     f_hhi = ex.submit(get_zip_hhi, data.get("zip_code", ""))
                     f_mkt = ex.submit(match_and_lookup, data.get("msa") or data.get("city_state", ""), data.get("submarket", ""), api_key)
                     img_results = {
-                        "exterior": f_ext.result(), "amenity": f_am.result(),
-                        "kitchen":  f_ki.result(),  "map":     (f_map.result(), "ok"),
+                        "exterior": f_ext.result(), "amenity":  f_am.result(),
+                        "amenity2": f_am2.result(), "kitchen":  f_ki.result(),
+                        "map":      (f_map.result(), "ok"),
                     }
                     data.update(f_wt.result())
                     data.update(f_hhi.result())
@@ -544,7 +547,7 @@ with tab_pg:
                 st.error(f"Image fetch error: {e}")
                 st.stop()
 
-            img_b64s = {k: img_to_b64(img_results[k][0]) for k in ("exterior", "amenity", "kitchen", "map")}
+            img_b64s = {k: img_to_b64(img_results[k][0]) for k in ("exterior", "amenity", "amenity2", "kitchen", "map")}
 
             st.write("Building PDF...")
             try:
@@ -612,14 +615,14 @@ with tab_pg:
         if any(imgs.values()):
             with st.expander("Property Images  ·  right-click to copy or use buttons below"):
                 import base64
-                cols = st.columns(4)
-                labels = [("exterior", "Exterior"), ("amenity", "Amenity"),
-                          ("kitchen", "Kitchen"),  ("map",      "Location")]
+                cols = st.columns(5)
+                labels = [("exterior", "Exterior"), ("amenity", "Amenity 1"),
+                          ("amenity2", "Amenity 2"), ("kitchen", "Kitchen"),
+                          ("map", "Location")]
                 ds = _slugs(st.session_state.pg_data)[0]
                 for col, (key, label) in zip(cols, labels):
                     b64 = imgs.get(key)
                     if b64:
-                        # strip data URI prefix to get raw bytes
                         raw = base64.b64decode(b64.split(",", 1)[1])
                         with col:
                             st.image(b64, caption=label, use_container_width=True)
