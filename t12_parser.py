@@ -216,7 +216,7 @@ def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, 
         if not coa_code:
             if any(v != 0 for v in monthly):
                 unmapped.append({"prefix": prefix, "acct": acct_raw, "name": name_raw, "total": total})
-            continue
+            coa_code = "nai" if total >= 0 else "nae"
 
         line_items.append({
             "acct":      acct_raw,
