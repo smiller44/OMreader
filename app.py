@@ -366,13 +366,15 @@ def _classify_unmapped(unmapped: list, api_key: str) -> dict:
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=800,
+            max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
         text = msg.content[0].text
+        logger.info("COA classification response: %s", text[:500])
         m = _re.search(r"\{.*\}", text, _re.DOTALL)
         if m:
             return json.loads(m.group())
+        logger.warning("COA classification returned no JSON. Response: %s", text)
     except Exception as e:
         logger.warning("COA auto-classification failed: %s", e)
     return {}
