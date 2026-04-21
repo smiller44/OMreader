@@ -66,53 +66,58 @@ section[data-testid="stSidebar"] hr {
 }
 /* MSA section header */
 .msa-header {
-    font-size: 8.5px !important;
-    font-weight: 700 !important;
-    color: #2A4F72 !important;
-    letter-spacing: 0.16em !important;
-    text-transform: uppercase !important;
-    padding: 10px 0 3px !important;
-    border-bottom: 1px solid #152333 !important;
-    margin-bottom: 2px !important;
+    font-size: 8px;
+    font-weight: 700;
+    color: #253F5A;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 12px 0 4px;
+    border-top: 1px solid #152333;
+    margin-top: 4px;
 }
-/* Deal row text */
+/* Deal row */
 .dr-name {
-    font-size: 11px !important;
-    font-weight: 600 !important;
-    color: #BDD4EE !important;
-    line-height: 1.25 !important;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: #C2D8F0;
+    line-height: 1.3;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .dr-meta {
-    font-size: 9px !important;
-    color: #364F68 !important;
-    line-height: 1.2 !important;
+    font-size: 9px;
+    color: #2E4A62;
+    line-height: 1.4;
+    margin-bottom: 6px;
 }
-/* Sidebar action buttons — text-link style */
-section[data-testid="stSidebar"] .stDownloadButton > button,
-section[data-testid="stSidebar"] .stButton > button {
+/* Sidebar buttons — fully flatten */
+section[data-testid="stSidebar"] button,
+section[data-testid="stSidebar"] button:hover,
+section[data-testid="stSidebar"] button:focus,
+section[data-testid="stSidebar"] button:active {
     background: transparent !important;
+    background-color: transparent !important;
     border: none !important;
-    color: #2E5A84 !important;
-    font-size: 10px !important;
-    font-weight: 700 !important;
-    padding: 0 !important;
-    min-height: unset !important;
-    height: 20px !important;
-    line-height: 1 !important;
-    letter-spacing: 0.02em !important;
-    width: 100% !important;
     box-shadow: none !important;
+    outline: none !important;
+    padding: 0 2px !important;
+    min-height: unset !important;
+    height: 18px !important;
+    line-height: 18px !important;
+    border-radius: 0 !important;
+    width: 100% !important;
 }
-section[data-testid="stSidebar"] .stDownloadButton > button:hover {
-    color: #6AAEE8 !important;
-    background: transparent !important;
+section[data-testid="stSidebar"] button p,
+section[data-testid="stSidebar"] button span {
+    font-size: 9.5px !important;
+    font-weight: 700 !important;
+    color: #2A5278 !important;
+    letter-spacing: 0.04em !important;
 }
-section[data-testid="stSidebar"] .stButton > button:hover {
-    color: #5A7A9A !important;
-    background: transparent !important;
+section[data-testid="stSidebar"] button:hover p,
+section[data-testid="stSidebar"] button:hover span {
+    color: #5FA0D8 !important;
 }
 
 /* ── Tabs ──────────────────────────────────────────────────────────── */
@@ -435,46 +440,28 @@ with st.sidebar:
                 has_pdf = bool(deal.get("pdf_path"))
                 has_xl  = bool(deal.get("excel_path"))
 
-                # Row: [name+meta] [↓1P] [↓QV] [✕]  or  [name+meta] [↓] [✕]
-                if has_pdf and has_xl:
-                    nc, c1, c2, xc = st.columns([5, 1.3, 1.3, 0.8])
-                else:
-                    nc, c1, xc = st.columns([6, 1.6, 0.8])
-                    c2 = None
-
+                nc, ac = st.columns([6, 1.8])
                 with nc:
                     st.markdown(
                         f'<div class="dr-name">{deal["deal_name"]}</div>'
                         + (f'<div class="dr-meta">{meta}</div>' if meta else ""),
                         unsafe_allow_html=True,
                     )
-
-                if has_pdf:
-                    with c1:
+                with ac:
+                    if has_pdf:
                         pdf_b = fetch_pdf(deal["pdf_path"], deal["ts"])
-                        st.download_button("↓ 1P", data=pdf_b or b"",
+                        st.download_button("↓ 1-Pager", data=pdf_b or b"",
                             file_name=deal["filename"], mime="application/pdf",
                             key=f"dl_pdf_{real_idx}", use_container_width=True,
                             disabled=not pdf_b)
-                if has_xl and c2 is not None:
-                    with c2:
+                    if has_xl:
                         xl_b = fetch_excel(deal["excel_path"], deal["ts"])
-                        st.download_button("↓ QV", data=xl_b or b"",
+                        st.download_button("↓ QuickVal", data=xl_b or b"",
                             file_name=deal.get("excel_filename", "model.xlsx"),
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             key=f"dl_xl_{real_idx}", use_container_width=True,
                             disabled=not xl_b)
-                elif has_xl and not has_pdf:
-                    with c1:
-                        xl_b = fetch_excel(deal["excel_path"], deal["ts"])
-                        st.download_button("↓ QV", data=xl_b or b"",
-                            file_name=deal.get("excel_filename", "model.xlsx"),
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key=f"dl_xl_{real_idx}", use_container_width=True,
-                            disabled=not xl_b)
-
-                with xc:
-                    if st.button("✕", key=f"rm_{real_idx}", help="Remove"):
+                    if st.button("✕ Remove", key=f"rm_{real_idx}"):
                         db_delete_deal(deal["processed_file"],
                                        deal.get("pdf_path", ""),
                                        deal.get("excel_path", ""))
