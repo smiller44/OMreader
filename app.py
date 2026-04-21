@@ -606,6 +606,35 @@ with tab_pg:
             mime="application/pdf",
             use_container_width=True,
         )
+
+        # ── Property images (copy/download for QuickVal) ──────────────────────
+        imgs = st.session_state.get("pg_imgs", {})
+        if any(imgs.values()):
+            with st.expander("Property Images  ·  right-click to copy or use buttons below"):
+                import base64
+                cols = st.columns(4)
+                labels = [("exterior", "Exterior"), ("amenity", "Amenity"),
+                          ("kitchen", "Kitchen"),  ("map",      "Location")]
+                ds = _slugs(st.session_state.pg_data)[0]
+                for col, (key, label) in zip(cols, labels):
+                    b64 = imgs.get(key)
+                    if b64:
+                        # strip data URI prefix to get raw bytes
+                        raw = base64.b64decode(b64.split(",", 1)[1])
+                        with col:
+                            st.image(b64, caption=label, use_container_width=True)
+                            st.download_button(
+                                f"↓ {label}",
+                                data=raw,
+                                file_name=f"{ds}_{key}.jpg",
+                                mime="image/jpeg",
+                                use_container_width=True,
+                                key=f"dl_img_{key}",
+                            )
+                    else:
+                        with col:
+                            st.caption(f"{label} — not found")
+
         with st.expander("View extracted data"):
             st.json(st.session_state.pg_data)
     elif not pg_om_file:
