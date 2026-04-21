@@ -246,7 +246,8 @@ _SS_DEFAULTS = {
     "pg_imgs": {}, "pg_whisper": "", "pg_filename": None,
     # quickval tab
     "qv_key": None, "qv_excel": None, "qv_data": None,
-    "qv_t12": None,  "qv_whisper": "", "qv_filename": None,
+    "qv_t12": None, "qv_whisper": "", "qv_filename": None,
+    "qv_om_key": None, "qv_om_data": None,
 }
 for k, v in _SS_DEFAULTS.items():
     if k not in st.session_state:
@@ -470,18 +471,45 @@ with tab_pg:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with tab_qv:
+
+    # ── OM upload (optional — provides deal metadata) ─────────────────────────
+    _upload_label("Offering Memorandum", required=False)
+    qv_om_file = st.file_uploader("OM", type="pdf",
+                                  label_visibility="collapsed", key="qv_om_upload")
+
+    # ── T12 + Tax uploads ─────────────────────────────────────────────────────
     col_t12, col_tax = st.columns(2)
     with col_t12:
         _upload_label("T12 Operating Statement", required=True)
-        qv_t12_file = st.file_uploader("T12", type=["xlsx", "xls"],
+        qv_t12_file = st.file_uploader("T12", type=["xlsx", "xls", "pdf"],
                                        label_visibility="collapsed", key="qv_t12_upload")
     with col_tax:
         _upload_label("Tax Bill", required=False)
         qv_tax_file = st.file_uploader("Tax Bill", type=["pdf", "xlsx", "xls"],
                                        label_visibility="collapsed", key="qv_tax_upload")
 
+    # ── Extract OM on new upload; clear if removed ────────────────────────────
+    qv_om_upload_key = qv_om_file.name if qv_om_file else None
+    if not qv_om_file and st.session_state.qv_om_key is not None:
+        st.session_state.qv_om_key  = None
+        st.session_state.qv_om_data = None
+    if qv_om_file and qv_om_upload_key != st.session_state.qv_om_key:
+        api_key = st.secrets.get("API_KEY", "")
+        if not api_key:
+            st.error("API_KEY not configured.")
+            st.stop()
+        with st.spinner("Extracting deal info from OM..."):
+            try:
+                om_bytes = qv_om_file.read()
+                st.session_state.qv_om_data = call_claude(extract_text(om_bytes), api_key)
+                st.session_state.qv_om_key  = qv_om_upload_key
+            except Exception as e:
+                logger.exception("QuickVal OM extraction error")
+                st.warning(f"Could not extract OM data: {e}")
+
+    # ── Deal Info expander — only shown when no OM is uploaded ────────────────
     qv_manual: dict = {}
-    if qv_t12_file:
+    if qv_t12_file and not qv_om_file:
         with st.expander("Deal Info", expanded=True):
             c1, c2 = st.columns(2)
             with c1:
@@ -496,7 +524,8 @@ with tab_qv:
                 qv_manual["avg_sf"]     = st.text_input("Avg SF / Unit", key="qv_sf")
             qv_manual = {k: v for k, v in qv_manual.items() if v}
 
-    qv_upload_key = "|".join(f.name for f in [qv_t12_file, qv_tax_file] if f)
+    # ── Build trigger: any of the three files changing rebuilds the model ─────
+    qv_upload_key = "|".join(f.name for f in [qv_om_file, qv_t12_file, qv_tax_file] if f)
 
     if qv_t12_file and qv_upload_key != st.session_state.qv_key:
 
@@ -509,6 +538,7 @@ with tab_qv:
                 st.error(f"T12 parse error: {e}")
                 st.stop()
 
+        # Step 2: Merge data — T12 summary → OM data → manual overrides
         qv_data: dict = {
             "t12_basis":          "T-12",
             "t12_egi":            qv_t12_parsed["summary"]["t12_egi"],
@@ -517,11 +547,17 @@ with tab_qv:
             "loss_to_lease":      qv_t12_parsed["summary"]["loss_to_lease"],
             "physical_occupancy": qv_t12_parsed["summary"].get("physical_occupancy"),
         }
+        # OM data wins over T12 scrub for deal metadata
+        if st.session_state.qv_om_data:
+            for k, v in st.session_state.qv_om_data.items():
+                if v:
+                    qv_data[k] = v
+        # Manual entries override everything
         for k, v in qv_manual.items():
             if v:
                 qv_data[k] = v
 
-        # Step 2: Parse Tax Bill (optional)
+        # Step 3: Parse Tax Bill (optional)
         if qv_tax_file:
             with st.spinner("Parsing tax bill..."):
                 try:
@@ -533,7 +569,7 @@ with tab_qv:
                     logger.warning("Tax bill parse error: %s", e)
                     st.warning(f"Tax bill parse warning: {e}")
 
-        # Step 3: Build Excel (no whisper on initial run)
+        # Step 4: Build Excel
         with st.spinner("Building QuickVal model..."):
             try:
                 excel_out = build_excel(qv_data, qv_t12_parsed, "")
