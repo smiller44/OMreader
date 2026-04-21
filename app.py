@@ -64,32 +64,32 @@ section[data-testid="stSidebar"] hr {
     opacity: 1 !important;
     margin: 4px 0 !important;
 }
-/* MSA section header */
+/* City section header */
 .msa-header {
-    font-size: 8px;
+    font-size: 9px;
     font-weight: 700;
-    color: #253F5A;
-    letter-spacing: 0.18em;
+    color: #4A7AA8;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    padding: 12px 0 4px;
-    border-top: 1px solid #152333;
-    margin-top: 4px;
+    padding: 14px 0 5px;
+    border-top: 1px solid #1A2E45;
+    margin-top: 6px;
 }
 /* Deal row */
 .dr-name {
-    font-size: 11.5px;
+    font-size: 12.5px;
     font-weight: 600;
-    color: #C2D8F0;
-    line-height: 1.3;
+    color: #D6E8FA;
+    line-height: 1.35;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 .dr-meta {
-    font-size: 9px;
-    color: #2E4A62;
+    font-size: 10px;
+    color: #3D6080;
     line-height: 1.4;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
 /* Sidebar buttons — fully flatten */
 section[data-testid="stSidebar"] button,
@@ -103,17 +103,17 @@ section[data-testid="stSidebar"] button:active {
     outline: none !important;
     padding: 0 2px !important;
     min-height: unset !important;
-    height: 18px !important;
-    line-height: 18px !important;
+    height: 20px !important;
+    line-height: 20px !important;
     border-radius: 0 !important;
     width: 100% !important;
 }
 section[data-testid="stSidebar"] button p,
 section[data-testid="stSidebar"] button span {
-    font-size: 9.5px !important;
-    font-weight: 700 !important;
-    color: #2A5278 !important;
-    letter-spacing: 0.04em !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    color: #3A6A9A !important;
+    letter-spacing: 0.03em !important;
 }
 section[data-testid="stSidebar"] button:hover p,
 section[data-testid="stSidebar"] button:hover span {
