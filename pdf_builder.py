@@ -1,5 +1,3 @@
-import re
-
 from playwright.sync_api import sync_playwright
 
 from config import CONFIG
@@ -101,29 +99,16 @@ def _build_returns_rows(data: dict) -> str:
         kv("Exit Cap",    nv(data.get("exit_cap"))),
     ])
 
-def _parse_unit_mix(s: str) -> list[tuple[str, int]]:
-    if not s:
-        return []
-    entries = []
-    for part in re.split(r'[,|;]|\band\b', s):
-        part = part.strip()
-        if not part:
-            continue
-        m = re.match(r'^(\d+)\s+(.+)$', part)
-        if m:
-            entries.append((m.group(2).strip(), int(m.group(1)))); continue
-        m = re.match(r'^(.+?)\s*[:(]\s*(\d+)\)?(?:\s+units?)?$', part, re.IGNORECASE)
-        if m:
-            entries.append((m.group(1).strip(), int(m.group(2)))); continue
-        m = re.match(r'^(.+?)\s*\((\d+)\)$', part)
-        if m:
-            entries.append((m.group(1).strip(), int(m.group(2))))
-    return entries
-
-def _unit_mix_row(unit_mix_str: str) -> str:
-    entries = _parse_unit_mix(unit_mix_str)
+def _unit_mix_row(unit_mix) -> str:
+    # unit_mix is now a list of {"type": str, "count": int} dicts from Claude
+    if not isinstance(unit_mix, list) or not unit_mix:
+        return ""
+    try:
+        entries = [(item["type"], int(item["count"])) for item in unit_mix if item.get("type") and item.get("count")]
+    except Exception:
+        return ""
     if not entries:
-        return kv("Unit Mix", nv(unit_mix_str))
+        return ""
     total = sum(c for _, c in entries)
     rows = "".join(
         f'<tr><td class="umk">{t}</td>'

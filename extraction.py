@@ -24,6 +24,7 @@ RULES:
 - "loss_to_lease": return as a percentage string e.g. "1.5%", NOT a dollar amount.
 - "retail": if the property has ground-floor or on-site retail, write a brief description (1 sentence). If none, return null.
 - "deal_status": concise e.g. "Unpriced / Call for Offers", "Best & Final", etc.
+- "unit_mix": return as an array of objects with "type" (e.g. "1BR/1BA") and "count" (integer). Empty array if not stated.
 
 Schema:
 {
@@ -50,7 +51,7 @@ Schema:
   "stories": string or null,
   "economic_occupancy": string or null,
   "amenities": string or null,
-  "unit_mix": string or null,
+  "unit_mix": [{"type": string, "count": number}] or [],
   "retail": string or null,
   "location_bullets": [string],
   "in_place_rent": string or null,
@@ -111,7 +112,7 @@ def validate_deal_data(data: dict) -> dict:
     if data.get("asset_class") not in ("A", "B", "C", None):
         data["asset_class"] = None
     for field in ("key_risks", "why_this_works", "investment_thesis", "business_plan",
-                  "location_bullets", "capex_bullets"):
+                  "location_bullets", "capex_bullets", "unit_mix"):
         if not isinstance(data.get(field), list):
             data[field] = []
     return data
