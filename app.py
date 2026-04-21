@@ -234,7 +234,7 @@ def get_map_image(address, city_state, maps_key):
     if not maps_key or not address: return None
     try:
         full = f"{address}, {city_state}" if city_state else address
-        params = {"center": full, "zoom": 11, "size": "400x260", "maptype": "roadmap",
+        params = {"center": full, "zoom": 10, "size": "400x260", "maptype": "roadmap",
                   "markers": f"color:red|{full}", "style": "feature:poi|visibility:off", "key": maps_key}
         r = requests.get("https://maps.googleapis.com/maps/api/staticmap", params=params, timeout=10)
         if r.status_code == 200:
@@ -308,6 +308,36 @@ def _build_returns_rows(data):
         kv("Exit Cap",    nv(data.get("exit_cap"))),
     ])
 
+def _parse_unit_mix(s):
+    if not s: return []
+    entries = []
+    for part in re.split(r'[,|;]|\band\b', s):
+        part = part.strip()
+        if not part: continue
+        m = re.match(r'^(\d+)\s+(.+)$', part)
+        if m: entries.append((m.group(2).strip(), int(m.group(1)))); continue
+        m = re.match(r'^(.+?)\s*[:(]\s*(\d+)\)?(?:\s+units?)?$', part, re.IGNORECASE)
+        if m: entries.append((m.group(1).strip(), int(m.group(2)))); continue
+        m = re.match(r'^(.+?)\s*\((\d+)\)$', part)
+        if m: entries.append((m.group(1).strip(), int(m.group(2))))
+    return entries
+
+def _unit_mix_row(unit_mix_str):
+    entries = _parse_unit_mix(unit_mix_str)
+    if not entries:
+        return kv("Unit Mix", nv(unit_mix_str))
+    total = sum(c for _, c in entries)
+    rows = "".join(
+        f'<tr><td class="umk">{t}</td>'
+        f'<td class="umv">{c}</td>'
+        f'<td class="umc">{c/total*100:.0f}%</td></tr>'
+        for t, c in entries
+    )
+    return (
+        f'<tr><td class="k" style="vertical-align:top;padding-top:3px">Unit Mix</td>'
+        f'<td class="v"><table class="um-tbl">{rows}</table></td></tr>'
+    )
+
 def _build_property_rows(data):
     return "".join([
         kv("Construction", nv(data.get("construction_type"))),
@@ -315,7 +345,7 @@ def _build_property_rows(data):
         kv("Stories",      nv(data.get("stories"))),
         kv("Econ Occ",     nv(data.get("economic_occupancy"))),
         kv("Amenities",    nv(data.get("amenities"))),
-        kv("Unit Mix",     nv(data.get("unit_mix"))),
+        _unit_mix_row(data.get("unit_mix")),
         kv("Retail",       nv(data.get("retail")) or "No retail"),
     ])
 
@@ -450,6 +480,11 @@ table { width: 100%; border-collapse: collapse; }
 .mv { font-size: 14px; font-weight: 700; color: #111827; }
 
 .divider { border-top: 1px solid #e5e7eb; margin: 8px 0; }
+
+.um-tbl { width: 100%; border-collapse: collapse; }
+.umk { font-size: 9px; color: #374151; padding: 1px 6px 1px 0; white-space: nowrap; }
+.umv { font-size: 9px; font-weight: 600; color: #111827; padding: 1px 6px; text-align: right; }
+.umc { font-size: 8px; color: #9ca3af; padding: 1px 0; text-align: right; }
 
 .sens-wrap { padding: 7px 16px 9px; background: #ffffff; border-bottom: 2px solid #e5e7eb; }
 .sens-tbl { width: 100%; border-collapse: collapse; }
