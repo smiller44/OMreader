@@ -420,7 +420,9 @@ with st.sidebar:
 
         groups: dict[str, list] = {}
         for idx, deal in enumerate(st.session_state.pipeline):
-            groups.setdefault(msa_for_deal(deal), []).append((idx, deal))
+            cs = deal.get("city_state", "")
+            city = cs.split(",")[0].strip().title() or "Other"
+            groups.setdefault(city, []).append((idx, deal))
 
         def _ts_key(d):
             return str(d["ts"])
