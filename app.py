@@ -12,11 +12,11 @@ from config import CONFIG, logger
 from database import db_load_pipeline, db_upsert_deal, db_delete_deal, fetch_pdf
 from excel_builder import build_excel
 from extraction import extract_text, call_claude
-from financial_parser import parse_financial_workbook
 from images import build_image_queries, serp_search_with_fallback, get_map_image, img_to_b64
 from msa import msa_for_deal, BROKERAGE_OPTIONS
 from pdf_builder import build_pdf
 from t12_parser import parse_t12
+from tax_parser import parse_tax_bill
 
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────────
 
@@ -246,7 +246,7 @@ _SS_DEFAULTS = {
     "pg_imgs": {}, "pg_whisper": "", "pg_filename": None,
     # quickval tab
     "qv_key": None, "qv_excel": None, "qv_data": None,
-    "qv_t12": None, "qv_whisper": "", "qv_filename": None,
+    "qv_t12": None,  "qv_whisper": "", "qv_filename": None,
 }
 for k, v in _SS_DEFAULTS.items():
     if k not in st.session_state:
@@ -458,28 +458,30 @@ with tab_pg:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with tab_qv:
-    col_fw, col_t12 = st.columns(2)
-    with col_fw:
-        _upload_label("Financial Workbook", required=True)
-        qv_fw_file = st.file_uploader("Fin. Workbook", type=["xlsx", "xls"],
-                                      label_visibility="collapsed", key="qv_fw_upload")
+    col_t12, col_tax = st.columns(2)
     with col_t12:
-        _upload_label("T12 / Rent Statement", required=False)
+        _upload_label("T12 Operating Statement", required=True)
         qv_t12_file = st.file_uploader("T12", type=["xlsx", "xls"],
                                        label_visibility="collapsed", key="qv_t12_upload")
+    with col_tax:
+        _upload_label("Tax Bill", required=False)
+        qv_tax_file = st.file_uploader("Tax Bill", type=["pdf", "xlsx", "xls"],
+                                       label_visibility="collapsed", key="qv_tax_upload")
 
     qv_manual: dict = {}
-    if qv_fw_file:
-        with st.expander("Deal Info", expanded=False):
+    if qv_t12_file:
+        with st.expander("Deal Info", expanded=True):
             c1, c2 = st.columns(2)
             with c1:
                 qv_manual["deal_name"]  = st.text_input("Deal Name", key="qv_deal_name")
-                qv_manual["city_state"] = st.text_input("City, State", key="qv_city_state")
                 qv_manual["address"]    = st.text_input("Street Address", key="qv_address")
+                qv_manual["city_state"] = st.text_input("City, State", key="qv_city_state")
+                qv_manual["submarket"]  = st.text_input("Submarket", key="qv_submarket")
             with c2:
-                qv_manual["broker"]    = st.selectbox("Broker", [""] + BROKERAGE_OPTIONS, key="qv_broker")
-                qv_manual["submarket"] = st.text_input("Submarket", key="qv_submarket")
-                qv_manual["year_built"]= st.text_input("Year Built", key="qv_year_built")
+                qv_manual["year_built"] = st.text_input("Year Built", key="qv_year_built")
+                qv_manual["units"]      = st.text_input("Total Units", key="qv_units")
+                qv_manual["broker"]     = st.selectbox("Broker", [""] + BROKERAGE_OPTIONS, key="qv_broker")
+                qv_manual["avg_sf"]     = st.text_input("Avg SF / Unit", key="qv_sf")
             qv_manual = {k: v for k, v in qv_manual.items() if v}
 
     st.markdown('<div class="whisper-wrap">', unsafe_allow_html=True)
@@ -489,44 +491,44 @@ with tab_qv:
                                 label_visibility="collapsed", key="qv_whisper_field")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    qv_upload_key = "|".join(f.name for f in [qv_fw_file, qv_t12_file] if f)
+    qv_upload_key = "|".join(f.name for f in [qv_t12_file, qv_tax_file] if f)
 
-    if qv_fw_file and qv_upload_key != st.session_state.qv_key:
+    if qv_t12_file and qv_upload_key != st.session_state.qv_key:
 
-        qv_data: dict = {}
+        # Step 1: Parse T12 (required)
+        with st.spinner("Parsing T12..."):
+            try:
+                qv_t12_parsed = parse_t12(qv_t12_file.read())
+            except Exception as e:
+                logger.exception("T12 parse error")
+                st.error(f"T12 parse error: {e}")
+                st.stop()
+
+        qv_data: dict = {
+            "t12_basis":          "T-12",
+            "t12_egi":            qv_t12_parsed["summary"]["t12_egi"],
+            "t12_opex":           qv_t12_parsed["summary"]["t12_opex"],
+            "t12_noi":            qv_t12_parsed["summary"]["t12_noi"],
+            "loss_to_lease":      qv_t12_parsed["summary"]["loss_to_lease"],
+            "physical_occupancy": qv_t12_parsed["summary"].get("physical_occupancy"),
+        }
         for k, v in qv_manual.items():
             if v:
                 qv_data[k] = v
 
-        # Parse Financial Workbook (required)
-        with st.spinner("Parsing financial workbook..."):
-            try:
-                fw_data = parse_financial_workbook(qv_fw_file.read())
-                for k, v in fw_data.items():
-                    if v is not None:
-                        qv_data[k] = v
-            except Exception as e:
-                logger.exception("Financial workbook parse error")
-                st.error(f"Financial workbook error: {e}")
-                st.stop()
-
-        # Parse T12 / Rent Statement (optional)
-        qv_t12_parsed = None
-        if qv_t12_file:
-            with st.spinner("Parsing rent statement..."):
+        # Step 2: Parse Tax Bill (optional)
+        if qv_tax_file:
+            with st.spinner("Parsing tax bill..."):
                 try:
-                    qv_t12_parsed = parse_t12(qv_t12_file.read())
-                    qv_data["t12_basis"]          = "T-12"
-                    qv_data["t12_egi"]            = qv_t12_parsed["summary"]["t12_egi"]
-                    qv_data["t12_opex"]           = qv_t12_parsed["summary"]["t12_opex"]
-                    qv_data["t12_noi"]            = qv_t12_parsed["summary"]["t12_noi"]
-                    qv_data["loss_to_lease"]      = qv_t12_parsed["summary"]["loss_to_lease"]
-                    qv_data["physical_occupancy"] = qv_t12_parsed["summary"].get("physical_occupancy")
+                    tax_data = parse_tax_bill(qv_tax_file.read(), qv_tax_file.name)
+                    for k, v in tax_data.items():
+                        if v is not None:
+                            qv_data[k] = v
                 except Exception as e:
-                    logger.warning("T12 parse error: %s", e)
-                    st.warning(f"Rent statement parse warning: {e}")
+                    logger.warning("Tax bill parse error: %s", e)
+                    st.warning(f"Tax bill parse warning: {e}")
 
-        # Build Excel
+        # Step 3: Build Excel
         with st.spinner("Building QuickVal model..."):
             try:
                 excel_out = build_excel(qv_data, qv_t12_parsed, qv_whisper)
@@ -568,5 +570,5 @@ with tab_qv:
         )
         with st.expander("View parsed data"):
             st.json(st.session_state.qv_data)
-    elif not qv_fw_file:
-        st.info("Upload a Financial Workbook to get started.")
+    elif not qv_t12_file:
+        st.info("Upload a T12 Operating Statement to get started.")
