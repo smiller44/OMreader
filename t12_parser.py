@@ -248,23 +248,78 @@ def _detect_header_row(ws) -> tuple[int, int, int, list[str]]:
     raise ValueError("Could not detect month header row in T12 file.")
 
 
+# Maps our short COA code → the exact full-label string that T12 Clean col B uses
+# (these must match T12 Clean exactly so the SUMIF in T12 Clean resolves correctly)
+COA_INTAKE_LABEL: dict[str, str] = {
+    "mkt":    "Gross Potential Rent - Market Rate",
+    "aff":    "Gross Potential Rent - Affordables",
+    "ltl":    "Gain / Loss-to-Lease",
+    "vac":    "Physical Vacancy",
+    "conc":   "Concessions",
+    "empmo":  "Employee / Model Units",
+    "down":   "Down Units",
+    "bd":     "Bad Debt / Write-Offs",
+    "pkg":    "Parking",
+    "stg":    "Storage",
+    "pet":    "Pet Fees / Rent",
+    "tv":     "Cable / Internet",
+    "oinc":   "Other Income Misc.",
+    "rubs":   "Utility Reimbursements",
+    "cominc": "Commercial Income",
+    "adv":    "Advertising / Marketing",
+    "adm":    "Administrative",
+    "rm":     "Repairs & Maintenance",
+    "cs":     "Contract Services",
+    "to":     "Turnover / Make Ready",
+    "pay":    "Payroll & Benefits",
+    "util":   "Utilities",
+    "mgt":    "Management Fee",
+    "ins":    "Insurance",
+    "ret":    "Real Estate Taxes",
+    "hoa":    "HOA",
+    "comexp": "Commercial Expenses",
+    "capx":   "Replacement Reserves",
+    "nrcapx": "Non-Recurring CapEx",
+    "amcapx": "Amenity / Common Area CapEx",
+    "intcapx":"Unit Interior CapEx",
+    "tilc":   "TI&LC Expenditures",
+    "nai":    "N/A Income / Entity Income",
+    "nae":    "N/A Expenses / Entity Expenses",
+}
+
+
+def _to_float(v) -> float:
+    """Convert cell value to float — handles numeric strings from some T12 exports."""
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        try:
+            return float(v.replace(",", "").strip())
+        except ValueError:
+            pass
+    return 0.0
+
+
 def parse_t12(file_bytes: bytes) -> dict:
     """
     Parse a T12 operating statement Excel export.
     Returns a dict with:
       - period: "Mar 2025 – Feb 2026"
-      - months: ["Mar 2025", ..., "Feb 2026"]   (list of 12 strings)
-      - coa: {code: {"label": str, "monthly": [float*12], "total": float}}
-      - summary: pre-computed income/expense/NOI totals for the 1-pager
+      - months: list of month label strings
+      - n_months: int
+      - line_items: list of every mapped detail line (for T12 Intake)
+      - coa: {code: {"label": str, "monthly": [float*n], "total": float}}  (aggregated)
+      - summary: pre-computed strings for the 1-pager
     """
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb.active
 
     hdr_row, first_col, total_col, months = _detect_header_row(ws)
-    n_months = total_col - first_col  # number of monthly columns
+    n_months = total_col - first_col
 
-    # Accumulate monthly arrays by COA code
-    coa: dict[str, list[float]] = {}
+    # ── Parse every detail line item ────────────────────────────────────────────
+    line_items: list[dict] = []   # for T12 Intake (one row per source line)
+    coa: dict[str, list[float]] = {}  # for summary aggregation
 
     for r in range(hdr_row + 1, ws.max_row + 1):
         acct_raw = ws.cell(r, 1).value
@@ -273,10 +328,10 @@ def parse_t12(file_bytes: bytes) -> dict:
             continue
 
         acct_str = str(acct_raw).strip()
-        name_str = str(name_raw).strip().lower()
+        name_str = str(name_raw).strip()
 
-        # Skip subtotal/total rows — we aggregate from detail
-        if any(p in name_str for p in _SKIP_PATTERNS):
+        # Skip subtotal/total rows
+        if any(p in name_str.lower() for p in _SKIP_PATTERNS):
             continue
 
         prefix = _acct_prefix(acct_str)
@@ -284,24 +339,33 @@ def parse_t12(file_bytes: bytes) -> dict:
         if not coa_code:
             continue
 
-        monthly = []
-        for ci in range(first_col, first_col + n_months):
-            v = ws.cell(r, ci).value
-            monthly.append(float(v) if isinstance(v, (int, float)) else 0.0)
+        monthly = [_to_float(ws.cell(r, first_col + i).value) for i in range(n_months)]
 
+        # Store individual line item for T12 Intake
+        line_items.append({
+            "acct":      acct_str,
+            "name":      name_str.strip(),
+            "coa_code":  coa_code,
+            "coa_label": COA_INTAKE_LABEL.get(coa_code, coa_code),
+            "monthly":   monthly,
+            "total":     sum(monthly),
+        })
+
+        # Aggregate into COA buckets for summary
         if coa_code not in coa:
             coa[coa_code] = [0.0] * n_months
         for i, v in enumerate(monthly):
             coa[coa_code][i] += v
 
-    # Build output dict with totals
-    result_coa = {}
-    for code, monthly in coa.items():
-        result_coa[code] = {
+    # Build aggregated coa dict
+    result_coa = {
+        code: {
             "label":   COA_LABELS.get(code, code),
             "monthly": monthly,
             "total":   sum(monthly),
         }
+        for code, monthly in coa.items()
+    }
 
     # ── Summary calculations ───────────────────────────────────────────────────
     def t(code): return result_coa.get(code, {}).get("total", 0.0)
@@ -318,39 +382,39 @@ def parse_t12(file_bytes: bytes) -> dict:
     other_income = sum(t(c) for c in ("pkg", "stg", "pet", "tv", "oinc", "rubs", "cominc"))
     egi          = net_rental + other_income
 
-    variable_opex   = sum(t(c) for c in ("adv", "adm", "rm", "cs", "to", "pay"))
-    nonvariable_opex= sum(t(c) for c in ("util", "mgt", "ins", "ret", "hoa", "comexp"))
-    total_opex      = variable_opex + nonvariable_opex
-    noi             = egi - total_opex
+    variable_opex    = sum(t(c) for c in ("adv", "adm", "rm", "cs", "to", "pay"))
+    nonvariable_opex = sum(t(c) for c in ("util", "mgt", "ins", "ret", "hoa", "comexp"))
+    total_opex       = variable_opex + nonvariable_opex
+    noi              = egi - total_opex
 
-    ltl_pct = f"{ltl / gpr * 100:.1f}%" if gpr else None
-    vac_pct  = f"{abs(vac) / gpr * 100:.1f}%" if gpr else None
-    opex_pct = f"{abs(total_opex) / egi * 100:.1f}%" if egi else None
-    noi_margin = f"{noi / egi * 100:.1f}%" if egi else None
+    ltl_pct    = f"{ltl / gpr * 100:.1f}%"         if gpr else None
+    vac_pct    = f"{abs(vac) / gpr * 100:.1f}%"    if gpr else None
+    opex_pct   = f"{abs(total_opex) / egi * 100:.1f}%" if egi else None
+    noi_margin = f"{noi / egi * 100:.1f}%"          if egi else None
 
     def _fmt(v): return f"${abs(v):,.0f}"
 
     summary = {
-        "period":           f"{months[0]} – {months[-1]}" if months else "",
-        "gpr":              _fmt(gpr),
-        "loss_to_lease":    ltl_pct,
+        "period":             f"{months[0]} – {months[-1]}" if months else "",
+        "gpr":                _fmt(gpr),
+        "loss_to_lease":      ltl_pct,
         "physical_occupancy": vac_pct,
-        "net_rental_income":_fmt(net_rental),
+        "net_rental_income":  _fmt(net_rental),
         "total_other_income": _fmt(other_income),
-        "t12_egi":          _fmt(egi),
-        "t12_opex":         _fmt(abs(total_opex)),
-        "t12_opex_pct":     opex_pct,
-        "t12_noi":          _fmt(noi),
-        "t12_noi_margin":   noi_margin,
-        "in_place_rent":    None,  # populated by financial_parser if rent roll available
+        "t12_egi":            _fmt(egi),
+        "t12_opex":           _fmt(abs(total_opex)),
+        "t12_opex_pct":       opex_pct,
+        "t12_noi":            _fmt(noi),
+        "t12_noi_margin":     noi_margin,
+        "in_place_rent":      None,
     }
 
     return {
-        "period": f"{months[0]} – {months[-1]}" if months else "",
-        "months": months,
-        "n_months": n_months,
-        "coa": result_coa,
-        "summary": summary,
-        # raw totals for excel_builder
+        "period":     f"{months[0]} – {months[-1]}" if months else "",
+        "months":     months,
+        "n_months":   n_months,
+        "line_items": line_items,
+        "coa":        result_coa,
+        "summary":    summary,
         "_gpr": gpr, "_egi": egi, "_total_opex": total_opex, "_noi": noi,
     }

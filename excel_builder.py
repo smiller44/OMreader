@@ -12,17 +12,8 @@ from openpyxl.utils import get_column_letter
 
 _TEMPLATE = os.path.join(os.path.dirname(__file__), "templates", "quickval_template.xlsx")
 
-# COA code order for T12 Intake rows (must match T12 Clean SUMIF expectations)
-_COA_ORDER = [
-    "mkt", "aff", "ltl", "vac", "conc", "empmo", "down", "bd",
-    "pkg", "stg", "pet", "tv", "oinc", "rubs", "cominc",
-    "adv", "adm", "rm", "cs", "to", "pay",
-    "util", "mgt", "ins", "ret", "hoa", "comexp",
-    "capx", "nrcapx", "amcapx", "intcapx", "tilc", "nai", "nae",
-]
 
-
-def _safe_float(v) -> float | None:
+def _safe_float(v):
     try:
         return float(v.replace("$", "").replace(",", "").replace("%", "")) if isinstance(v, str) else float(v)
     except Exception:
@@ -73,47 +64,54 @@ def _fill_proforma_overview(ws, data: dict, whisper: str = ""):
 
 def _fill_t12_intake(ws_intake, t12_parsed: dict):
     """
-    Write T12 monthly data into the T12 Intake sheet.
-    Rows start at row 4. Col B = COA code, Col C = label, Col D+ = monthly values.
-    Row 3 col O (last month col) = anchor date for the date-chain formulas.
-    """
-    months = t12_parsed.get("months", [])
-    n_months = t12_parsed.get("n_months", len(months))
-    coa = t12_parsed.get("coa", {})
+    Write every individual T12 line item into the T12 Intake sheet.
+    Col B = source account code
+    Col C = source line item description
+    Cols D–O = 12 monthly values
+    Col P = row total
+    Col Q = Mesirow COA label (must match T12 Clean SUMIF criteria exactly)
 
-    # Set the anchor date: last month in the T12 → col O (15) row 3
+    Row 3 col O (col 3+n_months) = anchor date for the backwards date-chain.
+    """
+    months     = t12_parsed.get("months", [])
+    n_months   = t12_parsed.get("n_months", len(months))
+    line_items = t12_parsed.get("line_items", [])
+
+    # Set anchor date on row 3 at the last-month column (col D + n_months - 1 = col 3+n_months)
     if months:
-        last_month_str = months[-1]  # e.g. "Feb 2026"
+        last_month_str = months[-1]
         try:
-            anchor_dt = datetime.strptime(last_month_str, "%b %Y")
-            # Set to end of that month
             import calendar
-            last_day = calendar.monthrange(anchor_dt.year, anchor_dt.month)[1]
-            anchor_date = date(anchor_dt.year, anchor_dt.month, last_day)
-            # Col D = first month, Col O = last month (12 cols: D=4 to O=15)
-            anchor_col = 3 + n_months  # col D=4, so anchor = 4 + (n_months-1) = 3+n_months
-            ws_intake.cell(3, anchor_col).value = anchor_date
+            anchor_dt = datetime.strptime(last_month_str, "%b %Y")
+            last_day  = calendar.monthrange(anchor_dt.year, anchor_dt.month)[1]
+            anchor_col = 3 + n_months   # col D=4 → last month col = 3+n_months
+            ws_intake.cell(3, anchor_col).value = date(anchor_dt.year, anchor_dt.month, last_day)
         except Exception:
             pass
 
-    # Write data rows starting at row 4
+    # Write one row per source line item starting at row 4
+    COL_ACCT    = 2   # B — source account code
+    COL_NAME    = 3   # C — source description
+    COL_FIRST   = 4   # D — first month value
+    COL_TOTAL   = 3 + n_months + 1   # P — totals column
+    COL_COA     = 17  # Q — Mesirow COA label for SUMIF
+
     data_row = 4
-    for coa_code in _COA_ORDER:
-        entry = coa.get(coa_code)
-        if not entry:
-            continue
-        monthly = entry["monthly"]
+    for item in line_items:
+        monthly = item["monthly"]
         if not any(v != 0 for v in monthly):
             continue
 
-        ws_intake.cell(data_row, 2).value = coa_code
-        ws_intake.cell(data_row, 3).value = entry["label"]
+        ws_intake.cell(data_row, COL_ACCT).value  = item["acct"]
+        ws_intake.cell(data_row, COL_NAME).value  = item["name"]
         for i, val in enumerate(monthly[:n_months]):
-            ws_intake.cell(data_row, 4 + i).value = round(val, 2)
+            ws_intake.cell(data_row, COL_FIRST + i).value = round(val, 2)
+        ws_intake.cell(data_row, COL_TOTAL).value = round(item["total"], 2)
+        ws_intake.cell(data_row, COL_COA).value   = item["coa_label"]
         data_row += 1
 
 
-def build_excel(data: dict, t12_parsed: dict | None = None, whisper: str = "") -> bytes:
+def build_excel(data: dict, t12_parsed=None, whisper: str = "") -> bytes:
     """
     Build a pre-filled QuickVal workbook.
     - data: merged deal dict (from OM + financial workbook + manual)
