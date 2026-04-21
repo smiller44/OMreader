@@ -15,7 +15,7 @@ from extraction import extract_text, call_claude
 from images import build_image_queries, serp_search_with_fallback, get_map_image, img_to_b64
 from msa import msa_for_deal, BROKERAGE_OPTIONS
 from pdf_builder import build_pdf
-from t12_parser import parse_t12
+from t12_parser import parse_t12, COA_DESCRIPTIONS
 from tax_parser import parse_tax_bill
 
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────────
@@ -294,6 +294,7 @@ _SS_DEFAULTS = {
     "qv_key": None, "qv_excel": None, "qv_data": None,
     "qv_t12": None, "qv_whisper": "", "qv_filename": None,
     "qv_om_key": None, "qv_om_data": None,
+    "qv_ai_mappings": {},
 }
 for k, v in _SS_DEFAULTS.items():
     if k not in st.session_state:
@@ -334,6 +335,44 @@ def _pipeline_upsert(key, data, pdf_bytes, filename, whisper):
     else:
         st.session_state.pipeline.append(entry)
     db_upsert_deal(entry, pdf_bytes)
+
+
+def _classify_unmapped(unmapped: list, api_key: str) -> dict:
+    """Ask Claude to map unknown T12 account codes to COA codes. Returns {prefix: coa_code}."""
+    if not unmapped or not api_key:
+        return {}
+    import anthropic, json, re as _re
+    coa_menu = "\n".join(f"  {code}: {desc}" for code, desc in COA_DESCRIPTIONS.items())
+    items_txt = "\n".join(
+        f"  {u['prefix']} | {u['name']} | ${u['total']:,.0f}" for u in unmapped
+    )
+    prompt = (
+        "You are a multifamily real estate accountant classifying T12 operating statement line items "
+        "for a Mesirow Financial underwriting model.\n\n"
+        "COA codes and what they cover:\n"
+        f"{coa_menu}\n\n"
+        "Unmapped line items to classify (5-digit acct prefix | description | annual total):\n"
+        f"{items_txt}\n\n"
+        "Rules:\n"
+        "- Assign each prefix to exactly one COA code\n"
+        "- Prefer specific codes over generic ones (e.g. 'pkg' over 'oinc' for parking)\n"
+        "- Use 'nai'/'nae' only for truly non-operating items (interest, depreciation, entity distributions)\n"
+        "- Return ONLY a valid JSON object: {\"<prefix>\": \"<coa_code>\", ...}"
+    )
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=800,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = msg.content[0].text
+        m = _re.search(r"\{.*\}", text, _re.DOTALL)
+        if m:
+            return json.loads(m.group())
+    except Exception as e:
+        logger.warning("COA auto-classification failed: %s", e)
+    return {}
 
 
 def _pipeline_upsert_qv(key, data, excel_bytes, excel_filename, whisper):
@@ -633,13 +672,45 @@ with tab_qv:
     if qv_t12_file and qv_upload_key != st.session_state.qv_key:
 
         # Step 1: Parse T12 (required)
+        t12_bytes = qv_t12_file.read()
         with st.spinner("Parsing T12..."):
             try:
-                qv_t12_parsed = parse_t12(qv_t12_file.read())
+                qv_t12_parsed = parse_t12(t12_bytes)
             except Exception as e:
                 logger.exception("T12 parse error")
                 st.error(f"T12 parse error: {e}")
                 st.stop()
+
+        # Auto-classify any unmapped line items so the sheet balances
+        unmapped = qv_t12_parsed.get("unmapped", [])
+        if unmapped:
+            api_key = st.secrets.get("API_KEY", "")
+            with st.spinner(f"Auto-classifying {len(unmapped)} unmapped line items..."):
+                ai_mappings = _classify_unmapped(unmapped, api_key)
+            if ai_mappings:
+                st.session_state.qv_ai_mappings = ai_mappings
+                with st.spinner("Re-parsing with classified items..."):
+                    try:
+                        qv_t12_parsed = parse_t12(t12_bytes, extra_mappings=ai_mappings)
+                    except Exception as e:
+                        logger.warning("Re-parse after classification failed: %s", e)
+
+        # Show any items still unmapped after AI pass (should be rare)
+        still_unmapped = qv_t12_parsed.get("unmapped", [])
+        if still_unmapped:
+            unmapped_total = sum(abs(u["total"]) for u in still_unmapped)
+            with st.expander(
+                f"⚠ {len(still_unmapped)} item{'s' if len(still_unmapped) != 1 else ''} still "
+                f"unclassified (${unmapped_total:,.0f}) — T12 check may show REVIEW",
+                expanded=False,
+            ):
+                import pandas as pd
+                st.dataframe(
+                    pd.DataFrame(still_unmapped)[["acct", "name", "total"]].rename(columns={
+                        "acct": "Account Code", "name": "Line Item", "total": "T12 Total ($)"
+                    }).assign(**{"T12 Total ($)": lambda df: df["T12 Total ($)"].map(lambda v: f"${v:,.0f}")}),
+                    hide_index=True, use_container_width=True,
+                )
 
         # Step 2: Merge data — T12 summary → OM data → manual overrides
         qv_data: dict = {

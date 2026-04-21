@@ -215,6 +215,70 @@ COA_LABELS: dict[str, str] = {
 }
 
 
+# Rich descriptions used in the Claude classification prompt
+COA_DESCRIPTIONS: dict[str, str] = {
+    "mkt":    "Gross potential rent for market-rate units — scheduled rent at 100% occupancy",
+    "aff":    "Gross potential rent for affordable, subsidized, or income-restricted units",
+    "ltl":    "Gain or loss-to-lease — difference between market rent and actual contracted/leased rent",
+    "vac":    "Physical vacancy loss — rent lost due to unoccupied units",
+    "conc":   "Concessions — free rent, move-in specials, look & lease discounts, one-time incentives",
+    "empmo":  "Employee units, model units, leasing office units, guest suites used by staff",
+    "down":   "Down units — offline units under renovation or held out of service",
+    "bd":     "Bad debt, write-offs, collections, uncollected rent charged off",
+    "pkg":    "Parking income — carport, garage, covered, reserved, or surface lot fees",
+    "stg":    "Storage unit rent, storage locker fees",
+    "pet":    "Pet fees (non-refundable), pet rent, pet deposits kept as income",
+    "tv":     "Bulk cable TV, internet, Wi-Fi, media services billed to residents",
+    "oinc":   (
+        "Other miscellaneous income: admin fees, application fees, late charges, MTM premiums, "
+        "NSF fees, transfer fees, smart home fees, renter's insurance income, damages collected, "
+        "lease cancellation fees, key/lock fees, club room rental, community fees, "
+        "guest suite income, interest income, vendor rebates, access gate remote fees"
+    ),
+    "rubs":   "Utility reimbursements billed back to tenants — water/sewer rebill, trash rebill, pest control rebill, utility RUBS income",
+    "cominc": "Commercial or retail tenant rental income, ground floor retail rents",
+    "adv":    (
+        "Advertising & marketing: ILS listings, SEM/PPC campaigns, property website, "
+        "social media, reputation management, signage, print/publications, "
+        "outreach marketing, broker/locator referral fees, resident events, "
+        "prospect refreshments, resident retention programs, tour experience"
+    ),
+    "adm":    (
+        "Administrative: office supplies, postage, cell phones, telephone, internet access, "
+        "software licenses, bank charges, legal fees, eviction fees, computer expense, "
+        "training/seminars, employee recruitment, uniform rental, licenses/fees/permits, "
+        "payment processing fees, NSF fees admin, business automation, revenue management software"
+    ),
+    "rm":     (
+        "Repairs & maintenance: appliance repairs, HVAC, plumbing, electrical, "
+        "building exterior/interior, common area repairs, painting, lighting, locks/keys, "
+        "maintenance supplies, preventative maintenance, safety/fire, small tools, "
+        "sprinklers, dog park, pool/spa, gym/fitness, business center, club room, amenities"
+    ),
+    "cs":     (
+        "Contract services: landscaping, janitorial, pest control, elevator contract, "
+        "fire alarm/suppression, fire protection, patrol/security/courtesy officer, "
+        "snow removal, trash removal, door-to-door trash, pool & spa contract, "
+        "access gate contract, cable TV contract, music/video/TV service, equipment contracts"
+    ),
+    "to":     "Turnover & make-ready: unit cleaning, housekeeper, paint contractor, painting supplies, blinds/drapes, carpet, touch-up between tenants",
+    "pay":    "Payroll & benefits: all property staff salaries (manager, leasing, maintenance, assistant roles), bonuses, 401k, group health insurance, employee burden/taxes",
+    "util":   "Utilities paid by owner: electricity for common areas, vacant units, models; gas; water/sewer (owner-paid); utility billing service/RUBS admin fees",
+    "mgt":    "Property management fees, asset management fees, management company charges",
+    "ins":    "Property insurance, casualty insurance, liability insurance, umbrella policy premiums",
+    "ret":    "Real estate taxes, ad valorem property taxes, personal property taxes, tax assessments",
+    "hoa":    "HOA dues, condo association fees, master association fees",
+    "comexp": "Commercial or retail tenant expenses, ground floor retail operating expenses",
+    "capx":   "Replacement reserves, capital expenditure reserves, recurring capex set-asides",
+    "nrcapx": "Non-recurring capital expenditures — large one-time repairs or replacements",
+    "amcapx": "Amenity or common area capital improvements — pool renovation, gym upgrade, lobby remodel",
+    "intcapx":"Unit interior capital improvements — unit renovation, value-add upgrades, appliance replacements",
+    "tilc":   "Tenant improvement allowances, leasing commissions for commercial tenants",
+    "nai":    "Non-operating or entity-level income — owner distributions received, interest on reserves, items that don't belong in NOI",
+    "nae":    "Non-operating or entity-level expenses — interest expense, depreciation, amortization, owner distributions, items that don't belong in NOI",
+}
+
+
 def _acct_prefix(code: str) -> str:
     """Return the 5-digit prefix of an account code like '41000-000'."""
     return str(code).split("-")[0].strip()
@@ -343,11 +407,14 @@ def _detect_header_row_pdf(rows: list[list]):
     raise ValueError("Could not detect month header row in PDF T12.")
 
 
-def _parse_t12_from_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, months: list[str]):
+def _parse_t12_from_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, months: list[str], acct_map: dict = None):
     """Shared parse logic that works on a flat list of string rows."""
     import re
+    if acct_map is None:
+        acct_map = _ACCT_TO_COA
     n_months = total_col - first_col
     line_items = []
+    unmapped = []
     coa = {}
     reported_noi = None
 
@@ -369,11 +436,15 @@ def _parse_t12_from_rows(rows: list[list], hdr_idx: int, first_col: int, total_c
             continue
 
         prefix = _acct_prefix(acct_raw)
-        coa_code = _ACCT_TO_COA.get(prefix)
-        if not coa_code:
-            continue
+        coa_code = acct_map.get(prefix)
 
         monthly = [_to_float(row[first_col + i] if first_col + i < len(row) else 0) for i in range(n_months)]
+        total = sum(monthly)
+
+        if not coa_code:
+            if any(v != 0 for v in monthly):
+                unmapped.append({"prefix": prefix, "acct": acct_raw, "name": name_raw, "total": total})
+            continue
 
         line_items.append({
             "acct":      acct_raw,
@@ -381,7 +452,7 @@ def _parse_t12_from_rows(rows: list[list], hdr_idx: int, first_col: int, total_c
             "coa_code":  coa_code,
             "coa_label": COA_INTAKE_LABEL.get(coa_code, coa_code),
             "monthly":   monthly,
-            "total":     sum(monthly),
+            "total":     total,
         })
 
         if coa_code not in coa:
@@ -389,36 +460,39 @@ def _parse_t12_from_rows(rows: list[list], hdr_idx: int, first_col: int, total_c
         for i, v in enumerate(monthly):
             coa[coa_code][i] += v
 
-    return line_items, coa, reported_noi
+    return line_items, unmapped, coa, reported_noi
 
 
-def parse_t12(file_bytes: bytes) -> dict:
+def parse_t12(file_bytes: bytes, extra_mappings: dict = None) -> dict:
     """
     Parse a T12 operating statement (Excel or PDF).
+    extra_mappings: {acct_prefix: coa_code} to supplement _ACCT_TO_COA (e.g. from AI classification).
     Returns a dict with:
-      - period: "Mar 2025 – Feb 2026"
-      - months: list of month label strings
-      - n_months: int
-      - line_items: list of every mapped detail line (for T12 Intake)
-      - coa: {code: {"label": str, "monthly": [float*n], "total": float}}  (aggregated)
-      - summary: pre-computed strings for the 1-pager
-      - reported_noi: seller's stated NOI total (written to T12 Intake S40)
+      - period, months, n_months
+      - line_items: every mapped detail line (for T12 Intake)
+      - unmapped: line items with no COA match (empty when extra_mappings covers them all)
+      - coa: aggregated by COA code
+      - summary, reported_noi
     """
+    effective_map = {**_ACCT_TO_COA, **(extra_mappings or {})}
     is_pdf = file_bytes[:4] == b"%PDF"
 
     if is_pdf:
         rows = _pdf_to_rows(file_bytes)
         hdr_idx, first_col, total_col, months = _detect_header_row_pdf(rows)
         n_months = total_col - first_col
-        line_items, coa, reported_noi = _parse_t12_from_rows(rows, hdr_idx, first_col, total_col, months)
+        line_items, unmapped, coa, reported_noi = _parse_t12_from_rows(
+            rows, hdr_idx, first_col, total_col, months, acct_map=effective_map
+        )
     else:
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
         ws = wb.active
         hdr_row, first_col, total_col, months = _detect_header_row(ws)
         n_months = total_col - first_col
 
-        line_items = []
-        coa = {}
+        line_items   = []
+        unmapped     = []
+        coa          = {}
         reported_noi = None
         _NOI_PATTERNS = ("net operating income", "net operating cash flow", "operating cash flow")
 
@@ -435,19 +509,23 @@ def parse_t12(file_bytes: bytes) -> dict:
                     reported_noi = _to_float(ws.cell(r, total_col).value)
                 continue
 
-            prefix = _acct_prefix(acct_str)
-            coa_code = _ACCT_TO_COA.get(prefix)
+            prefix   = _acct_prefix(acct_str)
+            coa_code = effective_map.get(prefix)
+            monthly  = [_to_float(ws.cell(r, first_col + i).value) for i in range(n_months)]
+            total    = sum(monthly)
+
             if not coa_code:
+                if any(v != 0 for v in monthly):
+                    unmapped.append({"prefix": prefix, "acct": acct_str, "name": name_str, "total": total})
                 continue
 
-            monthly = [_to_float(ws.cell(r, first_col + i).value) for i in range(n_months)]
             line_items.append({
                 "acct":      acct_str,
                 "name":      name_str,
                 "coa_code":  coa_code,
                 "coa_label": COA_INTAKE_LABEL.get(coa_code, coa_code),
                 "monthly":   monthly,
-                "total":     sum(monthly),
+                "total":     total,
             })
             if coa_code not in coa:
                 coa[coa_code] = [0.0] * n_months
@@ -511,6 +589,7 @@ def parse_t12(file_bytes: bytes) -> dict:
         "months":       months,
         "n_months":     n_months,
         "line_items":   line_items,
+        "unmapped":     unmapped,
         "coa":          result_coa,
         "summary":      summary,
         "reported_noi": reported_noi,
