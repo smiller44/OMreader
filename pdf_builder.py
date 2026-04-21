@@ -226,18 +226,21 @@ _HTML_CSS = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { width: 1100px; font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; background: #ffffff; line-height: 1.4; }
 
-.hdr { background: linear-gradient(130deg, #1B5BAE 0%, #2470D4 100%); padding: 13px 22px 11px; }
-.deal-name { font-size: 22px; font-weight: 700; color: #ffffff; letter-spacing: -0.5px; margin-bottom: 3px; }
-.deal-sub  { font-size: 11px; color: #c0d8f5; margin-bottom: 2px; }
-.deal-badges { font-size: 9.5px; color: #8ab8e8; }
-.mesirow-brand { font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.55); letter-spacing: .18em; text-transform: uppercase; margin-top: 6px; }
+.hdr { background: #ffffff; border-top: 4px solid #1B5BAE; border-bottom: 1px solid #e5e7eb; padding: 14px 22px 12px; display: flex; justify-content: space-between; align-items: flex-end; }
+.hdr-left { flex: 1; }
+.hdr-right { text-align: right; flex-shrink: 0; }
+.deal-name { font-size: 22px; font-weight: 700; color: #111827; letter-spacing: -0.5px; margin-bottom: 3px; }
+.deal-sub  { font-size: 11px; color: #6b7280; margin-bottom: 2px; }
+.deal-badges { font-size: 9.5px; color: #9ca3af; }
+.mesirow-brand { font-size: 9px; font-weight: 700; color: #1B5BAE; letter-spacing: .16em; text-transform: uppercase; }
+.hdr-class { font-size: 9px; color: #9ca3af; margin-top: 3px; }
 
-.strip { background: #174d9a; display: flex; border-bottom: 1px solid #1B5BAE; }
-.stat { flex: 1; padding: 8px 12px; border-right: 1px solid #1B5BAE; }
+.strip { background: #f3f6fb; display: flex; border-bottom: 1px solid #dce6f0; }
+.stat { flex: 1; padding: 8px 12px; border-right: 1px solid #dce6f0; }
 .stat:last-child { border-right: none; }
-.sl { font-size: 7px; font-weight: 600; color: #7bacd8; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }
-.sv { font-size: 12px; font-weight: 700; color: #f3f4f6; }
-.dim { color: #4a7ab5 !important; }
+.sl { font-size: 7px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: .09em; margin-bottom: 3px; }
+.sv { font-size: 12px; font-weight: 700; color: #111827; }
+.dim { color: #d1d5db !important; }
 
 .body { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 2px solid #e5e7eb; }
 .col-l { padding: 12px 16px; background: #ffffff; border-right: 2px solid #e5e7eb; }
@@ -314,7 +317,6 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "") -> str:
 
     parts  = " · ".join(x for x in [
         data.get("address"), data.get("city_state"), data.get("submarket"),
-        f"Class {data['asset_class']}" if data.get("asset_class") else None,
     ] if x)
     badges = " &nbsp;|&nbsp; ".join(x for x in [
         data.get("deal_type"), data.get("deal_status"), data.get("broker"),
@@ -329,10 +331,15 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "") -> str:
 <style>{_HTML_CSS}</style></head><body>
 
 <div class="hdr">
-  <div class="deal-name">{ns(data.get("deal_name"), "Deal")}</div>
-  <div class="deal-sub">{parts}</div>
-  <div class="deal-badges">{badges}</div>
-  <div class="mesirow-brand">Mesirow Financial &nbsp;·&nbsp; IRED</div>
+  <div class="hdr-left">
+    <div class="deal-name">{ns(data.get("deal_name"), "Deal")}</div>
+    <div class="deal-sub">{parts}</div>
+    <div class="deal-badges">{badges}</div>
+  </div>
+  <div class="hdr-right">
+    <div class="mesirow-brand">Mesirow Financial &nbsp;·&nbsp; IRED</div>
+    <div class="hdr-class">{f'Class {data["asset_class"]}' if data.get("asset_class") else "&nbsp;"}</div>
+  </div>
 </div>
 
 <div class="strip">{stat_html}</div>
