@@ -1,6 +1,6 @@
 from playwright.sync_api import sync_playwright
 
-from config import CONFIG
+from config import CONFIG  # noqa: F401
 
 # ── GENERIC HELPERS ───────────────────────────────────────────────────────────
 
