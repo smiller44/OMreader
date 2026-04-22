@@ -413,7 +413,7 @@ table { width: 100%; border-collapse: collapse; }
 .mid .col-l { background: #f3f4f6; border-right: 2px solid #e5e7eb; }
 .mid .col-r { background: #f3f4f6; }
 
-.photos { display: grid; grid-template-columns: repeat(5, 1fr); height: 195px; border-bottom: 2px solid #e5e7eb; }
+.photos { display: grid; grid-template-columns: repeat(4, 1fr); height: 230px; border-bottom: 2px solid #e5e7eb; }
 .ph { position: relative; overflow: hidden; background: #d1d5db; border-right: 2px solid #ffffff; }
 .ph:last-child { border-right: none; }
 .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -495,6 +495,10 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "", market_data: dict 
 
 <div class="strip">{stat_html}</div>
 
+<div class="photos">
+  {photo(E, "Exterior")}{photo(A, "Amenity")}{photo(K, "Kitchen")}{photo(M, "Location")}
+</div>
+
 <div class="body">
   <div class="col-l">
     <div class="sec">Investment Thesis</div>
@@ -530,10 +534,6 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "", market_data: dict 
     <div class="sec">Location &amp; Demand Drivers</div>
     <ul>{bul(data.get("location_bullets"), 3)}</ul>
   </div>
-</div>
-
-<div class="photos">
-  {photo(E, "Exterior")}{photo(A, "Amenity")}{photo(A2, "Amenity")}{photo(K, "Kitchen")}{photo(M, "Location")}
 </div>
 
 <div class="bot">

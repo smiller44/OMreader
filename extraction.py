@@ -130,7 +130,16 @@ Schema:
   "guidance": string or null,
   "bid_date": string or null,
   "tour_status": string or null,
-  "notes": string or null
+  "notes": string or null,
+  "county": string or null,
+  "acreage": string or null,
+  "density": string or null,
+  "management_fee": string or null,
+  "market_rent_growth": string or null,
+  "projected_rent_growth": string or null,
+  "walk_score": string or null,
+  "transit_score": string or null,
+  "crime_score": string or null
 }
 
 OM TEXT:

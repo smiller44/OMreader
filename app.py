@@ -640,6 +640,247 @@ with tab_pg:
 
         with st.expander("View extracted data"):
             st.json(st.session_state.pg_data)
+
+        # ── DD Data Pack ──────────────────────────────────────────────────────
+        with st.expander("📋  DD Data Pack", expanded=False):
+            d = st.session_state.pg_data
+
+            def _v(val, suffix=""):
+                if val is None or val == "":
+                    return '<span class="dd-empty">—</span>'
+                return f'<span class="dd-val">{val}{suffix}</span>'
+
+            def _row(label, val, suffix=""):
+                return (
+                    f'<div class="dd-row">'
+                    f'<span class="dd-key">{label}</span>'
+                    f'{_v(val, suffix)}'
+                    f'</div>'
+                )
+
+            def _sec(title, rows_html):
+                return (
+                    f'<div class="dd-section">'
+                    f'<div class="dd-sec-title">{title}</div>'
+                    f'{rows_html}'
+                    f'</div>'
+                )
+
+            st.markdown("""
+<style>
+.dd-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 18px; margin-top:8px; }
+.dd-section { margin-bottom:14px; }
+.dd-sec-title {
+    font-size:9px; font-weight:700; color:#1B5BAE;
+    text-transform:uppercase; letter-spacing:.1em;
+    border-bottom:1px solid #DDE3EC; padding-bottom:4px; margin-bottom:6px;
+}
+.dd-row { display:flex; justify-content:space-between; align-items:baseline;
+          padding:2px 0; border-bottom:1px solid #F0F3F7; }
+.dd-key { font-size:11px; color:#5A6880; min-width:130px; }
+.dd-val { font-size:11px; font-weight:600; color:#0D1B2A; text-align:right; }
+.dd-empty { font-size:11px; color:#B0BCC8; text-align:right; }
+.dd-copy-area textarea { font-family:monospace; font-size:11px !important; }
+</style>
+""", unsafe_allow_html=True)
+
+            # ── Tab-separated copy block ──────────────────────────────────
+            unit_mix_str = ""
+            for u in (d.get("unit_mix") or []):
+                unit_mix_str += f"{u.get('type','')}:\t{u.get('count','')}\n"
+
+            copy_lines = [
+                "=== PROPERTY OVERVIEW ===",
+                f"Deal Name\t{d.get('deal_name','') or ''}",
+                f"Address\t{d.get('address','') or ''}",
+                f"City / State\t{d.get('city_state','') or ''}",
+                f"Submarket\t{d.get('submarket','') or ''}",
+                f"County\t{d.get('county','') or ''}",
+                f"Asset Class\t{d.get('asset_class','') or ''}",
+                f"Year Built\t{d.get('year_built','') or ''}",
+                f"Year Renovated\t{d.get('year_renovated','') or ''}",
+                f"Units\t{d.get('units','') or ''}",
+                f"Avg SF\t{d.get('avg_sf','') or ''}",
+                f"Stories\t{d.get('stories','') or ''}",
+                f"Construction\t{d.get('construction_type','') or ''}",
+                f"Parking\t{d.get('parking','') or ''}",
+                f"Acreage\t{d.get('acreage','') or ''}",
+                f"Density\t{d.get('density','') or ''}",
+                f"Amenities\t{d.get('amenities','') or ''}",
+                f"Retail\t{d.get('retail','') or ''}",
+                "",
+                "=== RENT & INCOME ===",
+                f"Physical Occupancy\t{d.get('physical_occupancy','') or ''}",
+                f"Economic Occupancy\t{d.get('economic_occupancy','') or ''}",
+                f"In-Place Rent\t{d.get('in_place_rent','') or ''}",
+                f"Pro Forma Rent\t{d.get('pro_forma_rent','') or ''}",
+                f"Loss to Lease\t{d.get('loss_to_lease','') or ''}",
+                f"Management Fee\t{d.get('management_fee','') or ''}",
+                "",
+                "=== T12 FINANCIALS ===",
+                f"T12 Basis\t{d.get('t12_basis','') or ''}",
+                f"T12 EGI\t{d.get('t12_egi','') or ''}",
+                f"T12 OpEx\t{d.get('t12_opex','') or ''}",
+                f"T12 OpEx %\t{d.get('t12_opex_pct','') or ''}",
+                f"T12 NOI\t{d.get('t12_noi','') or ''}",
+                f"T12 NOI Margin\t{d.get('t12_noi_margin','') or ''}",
+                "",
+                "=== STABILIZED UNDERWRITING ===",
+                f"Stab Label\t{d.get('stab_label','') or ''}",
+                f"Stab EGI\t{d.get('stab_egi','') or ''}",
+                f"Stab OpEx\t{d.get('stab_opex','') or ''}",
+                f"Stab OpEx %\t{d.get('stab_opex_pct','') or ''}",
+                f"Stab NOI\t{d.get('stab_noi','') or ''}",
+                f"Stab NOI Margin\t{d.get('stab_noi_margin','') or ''}",
+                "",
+                "=== PURCHASE & CAPEX ===",
+                f"Purchase Price\t{d.get('purchase_price','') or ''}",
+                f"Price / Unit\t{d.get('price_per_unit','') or ''}",
+                f"Going-In Cap Rate\t{d.get('going_in_cap_rate','') or ''}",
+                f"CapEx Total\t{d.get('capex_total','') or ''}",
+                f"CapEx / Unit\t{d.get('capex_per_unit','') or ''}",
+                "",
+                "=== CAPITAL STRUCTURE (AS STATED IN OM) ===",
+                f"Lender\t{d.get('lender','') or ''}",
+                f"Debt Type\t{d.get('debt_type','') or ''}",
+                f"Term / IO\t{d.get('term_io','') or ''}",
+                f"Rate\t{d.get('rate','') or ''}",
+                f"LTC / LTV\t{d.get('ltc_ltv','') or ''}",
+                f"Equity\t{d.get('equity','') or ''}",
+                "",
+                "=== RETURNS (AS STATED IN OM) ===",
+                f"Levered IRR\t{d.get('levered_irr','') or ''}",
+                f"Equity Multiple\t{d.get('equity_multiple','') or ''}",
+                f"Avg CoC\t{d.get('avg_coc','') or ''}",
+                f"Exit Year\t{d.get('exit_year','') or ''}",
+                f"Exit Cap\t{d.get('exit_cap','') or ''}",
+                "",
+                "=== PROFORMA INPUTS ===",
+                f"Market Rent Growth\t{d.get('market_rent_growth','') or ''}",
+                f"Projected Rent Growth\t{d.get('projected_rent_growth','') or ''}",
+                "",
+                "=== PROCESS & STATUS ===",
+                f"Deal Type\t{d.get('deal_type','') or ''}",
+                f"Deal Status\t{d.get('deal_status','') or ''}",
+                f"Broker\t{d.get('broker','') or ''}",
+                f"Guidance\t{d.get('guidance','') or ''}",
+                f"Bid Date\t{d.get('bid_date','') or ''}",
+                f"Tour Status\t{d.get('tour_status','') or ''}",
+                f"Tax Notes\t{d.get('tax_notes','') or ''}",
+                f"Notes\t{d.get('notes','') or ''}",
+                "",
+                "=== MARKET RESEARCH (MANUAL) ===",
+                f"Walk Score\t{d.get('walk_score','') or ''}",
+                f"Transit Score\t{d.get('transit_score','') or ''}",
+                f"Crime Score\t{d.get('crime_score','') or ''}",
+            ]
+            copy_text = "\n".join(copy_lines)
+            if unit_mix_str:
+                copy_text += "\n\n=== UNIT MIX ===\n" + unit_mix_str
+
+            st.text_area(
+                "Copy-paste block (tab-separated for Excel)",
+                value=copy_text,
+                height=180,
+                key="dd_copy_block",
+            )
+
+            # ── Visual grid ──────────────────────────────────────────────
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.markdown(_sec("Property Overview", "".join([
+                    _row("Deal Name",       d.get("deal_name")),
+                    _row("Address",         d.get("address")),
+                    _row("City / State",    d.get("city_state")),
+                    _row("Submarket",       d.get("submarket")),
+                    _row("County",          d.get("county")),
+                    _row("Asset Class",     d.get("asset_class")),
+                    _row("Year Built",      d.get("year_built")),
+                    _row("Year Renovated",  d.get("year_renovated")),
+                    _row("Units",           d.get("units")),
+                    _row("Avg SF",          d.get("avg_sf")),
+                    _row("Stories",         d.get("stories")),
+                    _row("Construction",    d.get("construction_type")),
+                    _row("Parking",         d.get("parking")),
+                    _row("Acreage",         d.get("acreage")),
+                    _row("Density",         d.get("density")),
+                ])), unsafe_allow_html=True)
+
+                st.markdown(_sec("Rent &amp; Income", "".join([
+                    _row("Physical Occ.",   d.get("physical_occupancy")),
+                    _row("Economic Occ.",   d.get("economic_occupancy")),
+                    _row("In-Place Rent",   d.get("in_place_rent")),
+                    _row("Pro Forma Rent",  d.get("pro_forma_rent")),
+                    _row("Loss to Lease",   d.get("loss_to_lease")),
+                    _row("Mgmt Fee",        d.get("management_fee")),
+                ])), unsafe_allow_html=True)
+
+            with col2:
+                st.markdown(_sec("T12 Financials", "".join([
+                    _row("T12 Basis",       d.get("t12_basis")),
+                    _row("T12 EGI",         d.get("t12_egi")),
+                    _row("T12 OpEx",        d.get("t12_opex")),
+                    _row("T12 OpEx %",      d.get("t12_opex_pct")),
+                    _row("T12 NOI",         d.get("t12_noi")),
+                    _row("T12 NOI Margin",  d.get("t12_noi_margin")),
+                ])), unsafe_allow_html=True)
+
+                st.markdown(_sec("Stabilized UW", "".join([
+                    _row("Stab Label",      d.get("stab_label")),
+                    _row("Stab EGI",        d.get("stab_egi")),
+                    _row("Stab OpEx",       d.get("stab_opex")),
+                    _row("Stab OpEx %",     d.get("stab_opex_pct")),
+                    _row("Stab NOI",        d.get("stab_noi")),
+                    _row("Stab NOI Margin", d.get("stab_noi_margin")),
+                ])), unsafe_allow_html=True)
+
+                st.markdown(_sec("Purchase &amp; CapEx", "".join([
+                    _row("Purchase Price",  d.get("purchase_price")),
+                    _row("Price / Unit",    d.get("price_per_unit")),
+                    _row("Going-In Cap",    d.get("going_in_cap_rate")),
+                    _row("CapEx Total",     d.get("capex_total")),
+                    _row("CapEx / Unit",    d.get("capex_per_unit")),
+                ])), unsafe_allow_html=True)
+
+            with col3:
+                st.markdown(_sec("Capital Structure (OM)", "".join([
+                    _row("Lender",          d.get("lender")),
+                    _row("Debt Type",       d.get("debt_type")),
+                    _row("Term / IO",       d.get("term_io")),
+                    _row("Rate",            d.get("rate")),
+                    _row("LTC / LTV",       d.get("ltc_ltv")),
+                    _row("Equity",          d.get("equity")),
+                ])), unsafe_allow_html=True)
+
+                st.markdown(_sec("Returns (OM)", "".join([
+                    _row("Levered IRR",     d.get("levered_irr")),
+                    _row("Equity Multiple", d.get("equity_multiple")),
+                    _row("Avg CoC",         d.get("avg_coc")),
+                    _row("Exit Year",       d.get("exit_year")),
+                    _row("Exit Cap",        d.get("exit_cap")),
+                ])), unsafe_allow_html=True)
+
+                st.markdown(_sec("Proforma Inputs", "".join([
+                    _row("Mkt Rent Growth", d.get("market_rent_growth")),
+                    _row("Proj Rent Growth",d.get("projected_rent_growth")),
+                ])), unsafe_allow_html=True)
+
+                st.markdown(_sec("Process &amp; Status", "".join([
+                    _row("Deal Type",       d.get("deal_type")),
+                    _row("Deal Status",     d.get("deal_status")),
+                    _row("Broker",          d.get("broker")),
+                    _row("Guidance",        d.get("guidance")),
+                    _row("Bid Date",        d.get("bid_date")),
+                    _row("Tour Status",     d.get("tour_status")),
+                ])), unsafe_allow_html=True)
+
+                st.markdown(_sec("Market Research (Manual)", "".join([
+                    _row("Walk Score",      d.get("walk_score")),
+                    _row("Transit Score",   d.get("transit_score")),
+                    _row("Crime Score",     d.get("crime_score")),
+                ])), unsafe_allow_html=True)
+
     elif not pg_om_file:
         st.info("Upload an Offering Memorandum to get started.")
 
