@@ -852,6 +852,44 @@ def parse_t12(file_bytes: bytes, extra_mappings: dict = None) -> dict:
         rows, hdr_idx, first_col, total_col, acct_map
     )
 
+    # ── Sign normalisation ────────────────────────────────────────────────────
+    # Some T12 formats (e.g. CBRE Condensed) present income items that offset
+    # expenses as negative values in the expense section (utility reimbursements,
+    # bad-debt recoveries). Flip any item whose sign contradicts its COA role.
+    _must_positive = frozenset({
+        "mkt", "aff", "pkg", "stg", "pet", "tv", "oinc", "rubs", "cominc",
+        "adv", "adm", "rm", "cs", "to", "pay", "util",
+        "mgt", "ins", "ret", "hoa", "comexp",
+        "capx", "nrcapx", "amcapx", "intcapx", "tilc",
+    })
+    _must_negative = frozenset({"ltl", "vac", "conc", "empmo", "down", "bd"})
+
+    _recovery_words = frozenset({"recovery", "recoveries", "reimburse", "reimbursement"})
+
+    for item in line_items:
+        code  = item["coa_code"]
+        total = item["total"]
+        if abs(total) < 0.01:
+            continue
+        name_words = set(re.split(r"\W+", item["name"].lower()))
+        is_recovery = bool(name_words & _recovery_words)
+        needs_flip = (
+            (code in _must_positive and total < 0) or
+            (code in _must_negative and total > 0 and not is_recovery)
+        )
+        if needs_flip:
+            item["monthly"] = [-v for v in item["monthly"]]
+            item["total"]   = -total
+
+    # Rebuild coa_raw from normalised line_items
+    coa_raw = {}
+    for item in line_items:
+        code = item["coa_code"]
+        if code not in coa_raw:
+            coa_raw[code] = [0.0] * n_months
+        for i, v in enumerate(item["monthly"][:n_months]):
+            coa_raw[code][i] += v
+
     result_coa = {
         code: {"label": COA_LABELS.get(code, code), "monthly": monthly, "total": sum(monthly)}
         for code, monthly in coa_raw.items()
