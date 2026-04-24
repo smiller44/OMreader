@@ -86,7 +86,9 @@ def _fill_t12_intake(ws_intake, t12_parsed: dict):
             import calendar
             anchor_dt = datetime.strptime(last_month_str, "%b %Y")
             last_day  = calendar.monthrange(anchor_dt.year, anchor_dt.month)[1]
-            ws_intake.cell(3, 15).value = date(anchor_dt.year, anchor_dt.month, last_day)
+            cell = ws_intake.cell(3, 15)
+            cell.value = date(anchor_dt.year, anchor_dt.month, last_day)
+            cell.number_format = "MMM-YY"
         except Exception:
             pass
 

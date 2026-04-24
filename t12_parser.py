@@ -110,6 +110,443 @@ COA_DESCRIPTIONS: dict[str, str] = {
     "nae":     "Non-operating or entity-level expenses — interest expense, depreciation, amortization, owner distributions, items that don't belong in NOI",
 }
 
+# Hardcoded prefix → COA code for common Yardi/MRI/RealPage account ranges.
+# Claude is only called for prefixes NOT found here.
+_YARDI_ACCT_MAP: dict[str, str] = {
+    # ── Rental Income ──────────────────────────────────────────────────────
+    "3110": "mkt",   # Gross Potential Rent (market)
+    "3115": "mkt",
+    "3120": "aff",   # Affordable / subsidized GPR
+    "3125": "aff",
+    "3150": "mkt",   # Market Rent
+    "3155": "mkt",
+    "3160": "ltl",   # Gain / Loss-to-Lease
+    "3165": "ltl",
+    "3170": "ltl",
+    "3175": "ltl",
+    "3180": "vac",   # Vacancy Loss
+    "3185": "vac",
+    "3190": "vac",
+    "3200": "empmo", # Employee / Model Units
+    "3205": "empmo",
+    "3210": "down",  # Down / Offline Units
+    "3215": "down",
+    "3270": "bd",    # Bad Debt / Write-Offs
+    "3271": "bd",
+    "3275": "bd",
+    "3280": "bd",
+    "3285": "bd",    # Bad Debt Recovery (nets against bd)
+    "3290": "bd",
+    "3295": "bd",
+    "3300": "conc",  # Concessions / Free Rent
+    "3305": "conc",
+    "3310": "conc",
+    "3315": "conc",
+    "3320": "conc",
+    "3325": "conc",
+    "3330": "conc",
+    # ── Other Income ────────────────────────────────────────────────────────
+    "3500": "oinc",  # Other Income (generic)
+    "3510": "oinc",
+    "3512": "oinc",  # Non-Refundable Admin Fees
+    "3513": "oinc",
+    "3514": "oinc",
+    "3515": "oinc",
+    "3516": "pet",   # Non-Refundable Pet Fees
+    "3517": "pet",
+    "3518": "pet",
+    "3520": "oinc",  # Application Fees
+    "3522": "oinc",
+    "3524": "oinc",  # Late Fees
+    "3526": "oinc",  # NSF Fees
+    "3528": "oinc",  # Termination Fees / Lease Break
+    "3530": "oinc",  # Month-to-Month Premiums
+    "3535": "oinc",
+    "3540": "oinc",
+    "3542": "stg",   # Storage
+    "3544": "pkg",   # Parking - Carport
+    "3545": "pkg",
+    "3546": "pkg",   # Parking - Garage
+    "3547": "pkg",
+    "3548": "pkg",
+    "3549": "pkg",
+    "3550": "tv",    # Cable / Internet / Bulk TV
+    "3551": "tv",
+    "3552": "tv",
+    "3553": "tv",
+    "3554": "oinc",  # Interest Income (operating, not entity-level)
+    "3555": "oinc",
+    "3556": "oinc",
+    "3558": "oinc",  # Other Income
+    "3560": "oinc",
+    "3562": "pet",   # Pet Rent
+    "3563": "pet",   # Pet Rent
+    "3564": "pet",
+    "3565": "pet",
+    "3570": "oinc",
+    "3575": "oinc",
+    "3578": "oinc",
+    "3580": "bd",    # Bad Debt Recovery (other income side)
+    "3582": "oinc",  # Damages Collected
+    "3585": "oinc",
+    "3590": "rubs",  # Utility Reimbursements - Electricity
+    "3591": "rubs",
+    "3592": "rubs",  # Billback - Sewer
+    "3593": "rubs",  # Utility Billing Fees
+    "3594": "rubs",  # Billback - Waste / Trash
+    "3595": "rubs",
+    "3596": "rubs",
+    "3597": "rubs",  # Billback - Water/Sewer
+    "3598": "rubs",
+    "3599": "rubs",
+    "3600": "oinc",
+    "3610": "oinc",
+    "3620": "oinc",
+    "3630": "oinc",
+    "3639": "oinc",  # Renter's Insurance Income
+    "3640": "oinc",  # Renter's Insurance Program
+    "3650": "oinc",
+    "3660": "cominc", # Commercial / Retail Income
+    "3665": "cominc",
+    "3670": "cominc",
+    "3680": "oinc",
+    "3690": "oinc",
+    # ── Payroll ─────────────────────────────────────────────────────────────
+    "4010": "pay",
+    "4011": "pay",
+    "4012": "pay",   # Manager Salary
+    "4013": "pay",
+    "4014": "pay",
+    "4015": "pay",
+    "4016": "pay",
+    "4017": "pay",
+    "4018": "pay",   # Leasing Salary
+    "4019": "pay",
+    "4020": "pay",
+    "4021": "pay",   # Bonuses / Benefits / Medical
+    "4022": "pay",   # FICA / FUTA / Benefits
+    "4023": "pay",   # SUTA
+    "4024": "pay",
+    "4025": "pay",
+    "4026": "pay",   # Workers Comp
+    "4027": "pay",   # 401k / Temp Help
+    "4028": "pay",
+    "4029": "pay",
+    "4030": "pay",   # Maintenance Payroll
+    "4031": "pay",   # Maintenance Tech / Rent Allowance
+    "4032": "pay",   # R&M Bonuses / FICA / FUTA
+    "4033": "pay",   # R&M SUTA
+    "4034": "pay",
+    "4035": "pay",   # Workers Comp / Medical Insurance
+    "4036": "pay",   # 401k
+    "4037": "pay",
+    "4038": "pay",
+    "4039": "pay",
+    "4040": "pay",
+    "4045": "pay",
+    "4050": "pay",
+    "4055": "pay",
+    "4060": "pay",
+    "4065": "pay",
+    "4070": "pay",
+    "4075": "pay",
+    "4080": "pay",
+    "4085": "pay",
+    "4090": "pay",
+    "4095": "pay",
+    # ── Administrative ──────────────────────────────────────────────────────
+    "4100": "adm",
+    "4105": "adm",
+    "4110": "adm",
+    "4115": "adm",
+    "4120": "adm",
+    "4125": "adm",
+    "4130": "adm",
+    "4135": "adm",
+    "4140": "adm",
+    "4144": "adm",   # Employee Screening
+    "4145": "adm",
+    "4148": "adm",   # Bank Charges
+    "4150": "adm",
+    "4155": "adm",
+    "4158": "adm",   # Payroll Processing Fees
+    "4160": "adm",   # Dues & Subscriptions
+    "4161": "adm",   # Permits & Licenses
+    "4162": "adm",   # Software Licenses
+    "4163": "adm",   # Revenue Management Software
+    "4165": "adm",
+    "4170": "adm",
+    "4175": "adm",
+    "4180": "adm",
+    "4185": "adm",
+    "4190": "adm",
+    "4192": "adm",   # Legal / Evictions
+    "4195": "adm",
+    "4200": "adm",
+    "4205": "adm",
+    "4208": "adm",   # Training
+    "4210": "adm",
+    "4213": "hoa",   # HOA Dues ← non-variable, not adm
+    "4215": "adm",
+    "4220": "adm",
+    "4223": "mgt",   # Management Fee ← non-variable
+    "4225": "adm",
+    "4228": "adm",   # Office Refreshments
+    "4230": "adm",
+    "4235": "adm",
+    "4240": "adm",
+    "4245": "adm",
+    "4248": "adm",
+    "4250": "adm",   # Office Supplies
+    "4255": "adm",
+    "4256": "adm",   # Postage
+    "4258": "adm",
+    "4260": "adm",
+    "4264": "adm",   # Computer / Modem
+    "4265": "adm",
+    "4267": "adm",   # Pagers
+    "4268": "adm",   # Office Telephone
+    "4269": "adm",   # Internet
+    "4270": "adm",   # Copier
+    "4275": "adm",
+    "4278": "adm",
+    "4280": "adm",   # Meals / Entertainment
+    "4285": "adm",
+    "4290": "adm",
+    "4295": "adm",
+    # ── Marketing / Advertising ─────────────────────────────────────────────
+    "4300": "adv",
+    "4305": "adv",
+    "4310": "adv",
+    "4311": "adv",   # ILS / Online Advertising
+    "4312": "adv",
+    "4315": "adv",
+    "4320": "adv",
+    "4325": "adv",
+    "4330": "adv",
+    "4332": "adv",   # Resident Activities / Events
+    "4335": "adv",
+    "4340": "adv",
+    "4344": "adv",   # Photography
+    "4345": "adv",
+    "4350": "adv",
+    "4355": "adv",
+    "4360": "adv",
+    "4365": "adv",
+    "4366": "adv",   # Resident Referrals
+    "4368": "adv",
+    "4370": "adv",   # Tenant Screening
+    "4375": "adv",
+    "4380": "adv",
+    "4385": "adv",
+    "4390": "adv",
+    "4395": "adv",   # Marketing Misc
+    "4397": "adv",
+    "4398": "adv",
+    "4399": "adv",
+    # ── Repairs & Maintenance ───────────────────────────────────────────────
+    "4400": "rm",
+    "4405": "rm",
+    "4410": "rm",
+    "4415": "rm",
+    "4420": "rm",
+    "4425": "rm",
+    "4430": "rm",
+    "4431": "rm",    # R&M Supplies
+    "4432": "rm",    # Appliance Supplies
+    "4433": "rm",
+    "4434": "rm",    # Cleaning Supplies
+    "4435": "rm",    # Doors / Windows
+    "4436": "rm",    # Electrical Supplies
+    "4437": "rm",
+    "4438": "rm",
+    "4439": "rm",    # Fire / Alarm Supplies
+    "4440": "rm",    # Glass / Screen
+    "4441": "rm",
+    "4442": "rm",    # Hardware
+    "4443": "rm",
+    "4444": "rm",    # HVAC Supplies
+    "4445": "rm",
+    "4446": "rm",    # Keys / Locks
+    "4447": "rm",    # Light Bulbs
+    "4448": "rm",    # Paint Supplies
+    "4449": "rm",
+    "4450": "rm",
+    "4454": "rm",    # Plumbing Supplies
+    "4455": "rm",
+    "4460": "rm",
+    "4465": "rm",
+    "4470": "rm",
+    "4475": "rm",
+    "4478": "rm",    # Clubhouse & Amenities
+    "4480": "rm",
+    "4484": "rm",    # Electrical Services
+    "4485": "rm",
+    "4487": "rm",    # Golf Cart / Equipment Service
+    "4490": "rm",
+    "4494": "rm",    # Pest Control
+    "4495": "rm",
+    "4496": "rm",    # Plumbing Services
+    "4498": "rm",
+    "4499": "rm",
+    # ── Contract Services ───────────────────────────────────────────────────
+    "4500": "cs",
+    "4505": "cs",
+    "4510": "cs",
+    "4515": "cs",
+    "4520": "cs",
+    "4525": "cs",
+    "4530": "cs",
+    "4535": "cs",
+    "4540": "cs",
+    "4545": "cs",
+    "4550": "cs",
+    "4552": "cs",    # Landscape - Annual Contract
+    "4555": "cs",
+    "4558": "cs",    # Landscape - Seasonal
+    "4560": "cs",
+    "4565": "cs",
+    "4570": "cs",    # Snow Removal
+    "4575": "cs",
+    "4580": "cs",
+    "4585": "cs",
+    "4590": "cs",
+    "4595": "cs",
+    "4600": "cs",
+    "4605": "cs",
+    "4610": "cs",
+    "4615": "cs",
+    "4620": "cs",
+    "4621": "cs",
+    "4622": "cs",
+    "4623": "cs",
+    "4624": "cs",
+    "4625": "cs",
+    "4626": "cs",    # Security / Fire Protection
+    "4630": "cs",
+    "4631": "cs",
+    "4632": "cs",    # Alarm Service
+    "4635": "cs",
+    "4640": "cs",
+    "4645": "cs",
+    "4650": "cs",
+    "4655": "cs",
+    "4660": "cs",
+    "4665": "cs",
+    "4670": "cs",
+    "4675": "cs",
+    "4680": "cs",
+    "4685": "cs",
+    "4690": "cs",
+    "4695": "cs",
+    # ── Turnover / Make Ready ────────────────────────────────────────────────
+    "4700": "to",
+    "4701": "to",    # Blind Replacement
+    "4702": "to",    # Carpet Cleaning
+    "4705": "to",
+    "4710": "to",
+    "4713": "to",    # Contract Cleaning
+    "4715": "to",
+    "4720": "to",
+    "4723": "to",    # Turnover Misc
+    "4724": "to",    # Painting / Paint Supplies
+    "4725": "to",
+    "4730": "to",
+    "4735": "to",
+    "4740": "to",
+    "4745": "to",
+    "4750": "to",
+    "4755": "to",
+    "4760": "to",
+    "4765": "to",
+    "4770": "to",
+    "4775": "to",
+    "4780": "to",
+    "4785": "to",
+    "4790": "to",
+    "4795": "to",
+    # ── Utilities ───────────────────────────────────────────────────────────
+    "4800": "util",
+    "4802": "util",  # Electricity - Common Area
+    "4803": "util",
+    "4804": "util",  # Electricity - Vacant
+    "4805": "util",
+    "4806": "util",
+    "4810": "util",
+    "4812": "util",  # Gas - Common Area
+    "4815": "util",
+    "4817": "util",  # Gas - Vacant
+    "4820": "util",  # Sewer
+    "4825": "util",
+    "4830": "util",
+    "4835": "util",
+    "4840": "util",
+    "4844": "util",  # Waste Removal
+    "4845": "util",
+    "4850": "util",
+    "4852": "util",  # Water - Common Area
+    "4855": "util",
+    "4860": "util",  # Utility Processing Fees
+    "4865": "util",
+    "4870": "util",
+    "4875": "util",
+    "4880": "util",
+    "4885": "util",
+    "4890": "util",
+    "4895": "util",
+    # ── Insurance ───────────────────────────────────────────────────────────
+    "5000": "ins",
+    "5001": "ins",
+    "5002": "ins",
+    "5003": "ins",
+    "5004": "ins",   # Insurance - Expense / Other
+    "5005": "ins",
+    "5010": "ins",
+    "5015": "ins",
+    "5020": "ins",
+    # ── Real Estate Taxes ────────────────────────────────────────────────────
+    "5006": "ret",   # Property Taxes
+    "5007": "ret",
+    "5008": "ret",
+    "5025": "ret",
+    "5030": "ret",
+    "5035": "ret",
+    "5040": "ret",
+    "5045": "ret",
+    "5050": "ret",
+    "5100": "ret",
+    "5150": "ret",
+    "5200": "ret",
+    # ── Management Fee ───────────────────────────────────────────────────────
+    "5300": "mgt",
+    "5310": "mgt",
+    "5320": "mgt",
+    "5400": "mgt",
+    # ── Capital / Reserves ───────────────────────────────────────────────────
+    "6000": "capx",
+    "6005": "capx",
+    "6010": "capx",
+    "6015": "capx",
+    "6020": "capx",
+    "6050": "nrcapx",
+    "6100": "nrcapx",
+    "6150": "amcapx",
+    "6200": "intcapx",
+    # ── Non-Operating (entity-level; excluded from NOI) ───────────────────
+    "7000": "nae",   # Interest Expense
+    "7100": "nae",   # Depreciation
+    "7200": "nae",   # Amortization
+    "7300": "nae",
+    "7400": "nae",
+    "7500": "nae",
+    "8000": "nae",
+    "8100": "nae",
+    "8200": "nai",
+    "8500": "nae",
+    "9000": "nae",
+    "9100": "nai",
+}
+
 _SKIP_PATTERNS = {
     "total", "subtotal", "net ", "effective gross", "net operating",
     "n/a income", "n/a expense", "operating cash flow",
@@ -124,6 +561,26 @@ _NOI_PATTERNS = (
 
 def _acct_prefix(code: str) -> str:
     return str(code).split("-")[0].strip()
+
+
+_ACCT_RE = re.compile(r"^\d{4,5}(-\d+)*$")
+_ACCT_INLINE_RE = re.compile(r"^(\d{4,5}(?:-\d+)*)\s+(.+)$")
+
+
+def _extract_acct_name(row: list) -> tuple[str, str]:
+    """Return (acct_code, name) handling variable column layouts."""
+    col0 = str(row[0]).strip() if row else ""
+    col1 = str(row[1]).strip() if len(row) > 1 else ""
+    col2 = str(row[2]).strip() if len(row) > 2 else ""
+
+    if _ACCT_RE.match(col0):
+        return col0, col1
+    if not col0 and _ACCT_RE.match(col1):
+        return col1, col2
+    m = _ACCT_INLINE_RE.match(col0)
+    if m:
+        return m.group(1), m.group(2)
+    return col0, col1
 
 
 def _to_float(v) -> float:
@@ -196,8 +653,7 @@ def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, 
     for row in rows[hdr_idx + 1:]:
         if len(row) <= total_col:
             continue
-        acct_raw = row[0].strip()
-        name_raw = row[1].strip() if len(row) > 1 else ""
+        acct_raw, name_raw = _extract_acct_name(row)
         if not acct_raw or not name_raw:
             continue
 
@@ -211,7 +667,10 @@ def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, 
         prefix   = _acct_prefix(acct_raw)
         coa_code = acct_map.get(prefix)
         monthly  = [_to_float(row[first_col + i] if first_col + i < len(row) else 0) for i in range(n_months)]
-        total    = sum(monthly)
+        # Pad to 12 so T12 Intake cols D–O are always fully populated
+        while len(monthly) < 12:
+            monthly.append(0.0)
+        total    = sum(monthly[:n_months])
 
         if not coa_code:
             if any(v != 0 for v in monthly):
@@ -259,7 +718,7 @@ def parse_t12(file_bytes: bytes, extra_mappings: dict = None) -> dict:
     Parse a T12 operating statement (Excel or PDF).
     extra_mappings: {acct_prefix: coa_code} from Claude classification.
     """
-    acct_map = extra_mappings or {}
+    acct_map = {**_YARDI_ACCT_MAP, **(extra_mappings or {})}
     is_pdf   = file_bytes[:4] == b"%PDF"
 
     if is_pdf:
