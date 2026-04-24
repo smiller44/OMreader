@@ -736,6 +736,10 @@ def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int,
     # (present in CBRE Condensed and similar formats) should be kept or dropped.
     section_had_accounts = False
 
+    # For name-only (Entrata) format: track income vs expense section so identical
+    # item names in different sections get distinct prefixes for Claude classification.
+    entrata_section = "unknown"  # "income" | "expense" | "unknown"
+
     for row in rows[hdr_idx + 1:]:
         if len(row) <= total_col:
             continue
@@ -754,8 +758,13 @@ def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int,
         has_values = any(v != 0 for v in monthly[:n_months])
 
         # In name-only format, zero-value rows are section headers (e.g. "  INCOME").
-        # Skip them — they have no account code and no data to contribute.
+        # Detect income/expense boundary before skipping.
         if name_only and not acct_raw and not has_values:
+            nm = name_raw.strip().upper()
+            if nm == "INCOME":
+                entrata_section = "income"
+            elif nm in ("EXPENSES", "EXPENSE"):
+                entrata_section = "expense"
             continue
 
         # ── NOI capture (must happen before skip guards) ──────────────────────
@@ -805,9 +814,13 @@ def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int,
             section_had_accounts = True
 
         # ── Map to COA and accumulate ─────────────────────────────────────────
-        # For blank acct_raw, use the name as the lookup key so each item gets
-        # its own unmapped entry (e.g. "Electricity" and "Gas" stay distinct).
-        prefix   = _acct_prefix(acct_raw) if acct_raw else name_raw.strip().lower()
+        # For name-only format, prefix encodes the section so the same item name
+        # in the income and expense sections maps to different COA codes.
+        if name_only and not acct_raw:
+            base = name_raw.strip().lower()
+            prefix = f"{entrata_section}::{base}" if entrata_section != "unknown" else base
+        else:
+            prefix = _acct_prefix(acct_raw) if acct_raw else name_raw.strip().lower()
         coa_code = acct_map.get(prefix)
         if not coa_code:
             if has_values:
@@ -888,8 +901,10 @@ def parse_t12(file_bytes: bytes, extra_mappings: dict = None) -> dict:
     _must_positive = frozenset({
         "mkt", "aff", "pkg", "stg", "pet", "tv", "oinc", "rubs", "cominc",
         "adv", "adm", "rm", "cs", "to", "pay", "util",
-        "mgt", "ins", "ret", "hoa", "comexp",
+        "mgt", "hoa", "comexp",
         "capx", "nrcapx", "amcapx", "intcapx", "tilc",
+        # "ins" and "ret" intentionally excluded: tax credits/abatements and
+        # insurance rebates are legitimately negative line items within those categories.
     })
     _must_negative = frozenset({"ltl", "vac", "conc", "empmo", "down", "bd"})
 

@@ -264,6 +264,19 @@ hr { border-color: #DDE3EC !important; }
     margin-bottom: 4px;
 }
 
+.whisper-hint {
+    font-size: 11px;
+    color: #6B7A9B;
+    margin-top: -4px;
+    padding-bottom: 6px;
+}
+.whisper-applied {
+    font-size: 12px;
+    color: #1B8A4D;
+    font-weight: 600;
+    padding: 2px 0 10px;
+}
+
 /* ── Section divider ───────────────────────────────────────────────── */
 .sec-divider {
     height: 1px;
@@ -351,7 +364,10 @@ def _classify_unmapped(unmapped: list, api_key: str) -> dict:
         "for a Mesirow Financial underwriting model.\n\n"
         "COA codes and what they cover:\n"
         f"{coa_menu}\n\n"
-        "Unmapped line items to classify (5-digit acct prefix | description | annual total):\n"
+        "Unmapped line items to classify (prefix | description | annual total).\n"
+        "Prefix may include 'income::' or 'expense::' section context — use the FULL prefix as the JSON key.\n"
+        "The same item name in different sections must get different COA codes "
+        "(e.g. 'income::package delivery or locker fee' → 'oinc', 'expense::package delivery or locker fee' → 'adm').\n\n"
         f"{items_txt}\n\n"
         "Rules:\n"
         "- Assign each prefix to exactly one COA code\n"
@@ -489,6 +505,30 @@ tab_pg, tab_qv = st.tabs(["1-Pager Generator", "QuickVal Generator"])
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with tab_pg:
+    # ── Whisper (Path B: set before upload for single-pass build) ────────────
+    if st.session_state.pg_pdf is None:
+        st.markdown('<div class="whisper-row">', unsafe_allow_html=True)
+        st.markdown('<div class="whisper-row-label">Whisper / Guidance Price</div>', unsafe_allow_html=True)
+        with st.form("pg_whisper_pre_form", clear_on_submit=False, border=False):
+            _wc, _bc = st.columns([5, 1])
+            with _wc:
+                pg_whisper_pre = st.text_input(
+                    "Whisper",
+                    value=st.session_state.pg_whisper or "",
+                    placeholder="e.g. $85M",
+                    label_visibility="collapsed",
+                )
+            with _bc:
+                pg_whisper_pre_submit = st.form_submit_button("Apply ↵", use_container_width=True)
+        st.markdown('<div class="whisper-hint">Optional · press ↵ to set before uploading for a single-pass build</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        if pg_whisper_pre_submit:
+            st.session_state.pg_whisper = pg_whisper_pre
+    else:
+        pg_whisper_pre_submit = False
+        pg_whisper_pre = st.session_state.pg_whisper or ""
+
+    # ── Offering Memorandum upload ───────────────────────────────────────────
     _upload_label("Offering Memorandum", required=True)
     pg_om_file = st.file_uploader("OM", type="pdf",
                                   label_visibility="collapsed", key="pg_om_upload")
@@ -558,7 +598,7 @@ with tab_pg:
 
             st.write("Building PDF...")
             try:
-                pdf_out = build_pdf(data, img_b64s, market_data=mkt_data)
+                pdf_out = build_pdf(data, img_b64s, whisper=st.session_state.pg_whisper, market_data=mkt_data)
             except Exception as e:
                 logger.exception("Build error")
                 _status.update(label="Build failed", state="error")
@@ -574,40 +614,56 @@ with tab_pg:
         st.session_state.pg_pdf      = pdf_out
         st.session_state.pg_data     = data
         st.session_state.pg_imgs     = img_b64s
-        st.session_state.pg_whisper  = ""
+        # pg_whisper preserved — either pre-set by user (Path B) or "" (Path A)
         st.session_state.pg_filename = filename
         st.session_state.pg_mkt      = mkt_data
-        _pipeline_upsert(pg_upload_key, data, pdf_out, filename, "")
+        _pipeline_upsert(pg_upload_key, data, pdf_out, filename, st.session_state.pg_whisper)
 
     if st.session_state.pg_pdf is not None:
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
         st.success("1-pager ready.")
 
-        # Whisper — shown after results, rebuilt only on Apply click
+        # ── Whisper (Path A: update after viewing PDF) ──────────────────────
         st.markdown('<div class="whisper-row">', unsafe_allow_html=True)
         st.markdown('<div class="whisper-row-label">Whisper / Guidance Price</div>', unsafe_allow_html=True)
-        wc, bc = st.columns([5, 1])
-        with wc:
-            pg_whisper = st.text_input("Whisper", placeholder="e.g. $180M",
-                                       label_visibility="collapsed", key="pg_whisper_field")
-        with bc:
-            st.markdown("<div style='margin-top:4px'>", unsafe_allow_html=True)
-            pg_apply = st.button("Apply", key="pg_apply_whisper", use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+        with st.form("pg_whisper_post_form", clear_on_submit=False, border=False):
+            _wc2, _bc2 = st.columns([5, 1])
+            with _wc2:
+                pg_whisper_post = st.text_input(
+                    "Whisper",
+                    value=st.session_state.pg_whisper or "",
+                    placeholder="e.g. $85M",
+                    label_visibility="collapsed",
+                )
+            with _bc2:
+                pg_whisper_post_submit = st.form_submit_button("Apply ↵", use_container_width=True)
+        st.markdown('<div class="whisper-hint">Press ↵ to apply and rebuild the 1-pager</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        if pg_apply and pg_whisper != st.session_state.pg_whisper:
-            with st.spinner(f"Rebuilding 1-pager with {pg_whisper}..."):
+        if pg_whisper_post_submit and pg_whisper_post != st.session_state.pg_whisper:
+            with st.spinner(f"Rebuilding 1-pager with {pg_whisper_post}..."):
                 try:
-                    st.session_state.pg_pdf = build_pdf(st.session_state.pg_data,
-                                                         st.session_state.pg_imgs, pg_whisper,
-                                                         market_data=st.session_state.get("pg_mkt"))
-                    st.session_state.pg_whisper = pg_whisper
-                    _pipeline_upsert(st.session_state.pg_key, st.session_state.pg_data,
-                                      st.session_state.pg_pdf, st.session_state.pg_filename, pg_whisper)
+                    st.session_state.pg_pdf = build_pdf(
+                        st.session_state.pg_data,
+                        st.session_state.pg_imgs,
+                        pg_whisper_post,
+                        market_data=st.session_state.get("pg_mkt"),
+                    )
+                    st.session_state.pg_whisper = pg_whisper_post
+                    _pipeline_upsert(
+                        st.session_state.pg_key, st.session_state.pg_data,
+                        st.session_state.pg_pdf, st.session_state.pg_filename,
+                        pg_whisper_post,
+                    )
                 except Exception as e:
                     logger.exception("Rebuild error")
                     st.error(f"Rebuild error: {e}")
+
+        if st.session_state.pg_whisper:
+            st.markdown(
+                f'<div class="whisper-applied">✓ Applied: {st.session_state.pg_whisper}</div>',
+                unsafe_allow_html=True,
+            )
 
         st.download_button(
             "Download 1-Pager PDF",
@@ -897,6 +953,28 @@ with tab_pg:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 with tab_qv:
+    # ── Whisper (Path B: set before upload for single-pass build) ────────────
+    if st.session_state.qv_excel is None:
+        st.markdown('<div class="whisper-row">', unsafe_allow_html=True)
+        st.markdown('<div class="whisper-row-label">Whisper / Guidance Price</div>', unsafe_allow_html=True)
+        with st.form("qv_whisper_pre_form", clear_on_submit=False, border=False):
+            _wc, _bc = st.columns([5, 1])
+            with _wc:
+                qv_whisper_pre = st.text_input(
+                    "Whisper",
+                    value=st.session_state.qv_whisper or "",
+                    placeholder="e.g. $85M",
+                    label_visibility="collapsed",
+                )
+            with _bc:
+                qv_whisper_pre_submit = st.form_submit_button("Apply ↵", use_container_width=True)
+        st.markdown('<div class="whisper-hint">Optional · press ↵ to set before uploading for a single-pass build</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        if qv_whisper_pre_submit:
+            st.session_state.qv_whisper = qv_whisper_pre
+    else:
+        qv_whisper_pre_submit = False
+        qv_whisper_pre = st.session_state.qv_whisper or ""
 
     # ── OM upload (optional — provides deal metadata) ─────────────────────────
     _upload_label("Offering Memorandum", required=False)
@@ -1027,7 +1105,7 @@ with tab_qv:
             # Step 4: Build Excel
             st.write("Building Excel model...")
             try:
-                excel_out = build_excel(qv_data, qv_t12_parsed, "", tax_data=agg_tax_data)
+                excel_out = build_excel(qv_data, qv_t12_parsed, st.session_state.qv_whisper, tax_data=agg_tax_data)
             except Exception as e:
                 logger.exception("Excel build error")
                 _status.update(label="Excel build failed", state="error")
@@ -1061,41 +1139,58 @@ with tab_qv:
         st.session_state.qv_data     = qv_data
         st.session_state.qv_t12      = qv_t12_parsed
         st.session_state.qv_tax      = agg_tax_data
-        st.session_state.qv_whisper  = ""
+        # qv_whisper preserved — either pre-set by user (Path B) or "" (Path A)
         st.session_state.qv_filename = qv_filename
 
         # Pipeline key: use OM filename if OM uploaded (links to 1-pager entry), else T12
         qv_pipeline_key = qv_om_file.name if qv_om_file else qv_t12_file.name
-        _pipeline_upsert_qv(qv_pipeline_key, qv_data, excel_out, qv_filename, "")
+        _pipeline_upsert_qv(qv_pipeline_key, qv_data, excel_out, qv_filename, st.session_state.qv_whisper)
 
     if st.session_state.qv_excel is not None:
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
         st.success("QuickVal model ready.")
 
-        # Whisper — shown after results, rebuilt only on Apply click
+        # ── Whisper (Path A: update after viewing Excel) ────────────────────────
         st.markdown('<div class="whisper-row">', unsafe_allow_html=True)
         st.markdown('<div class="whisper-row-label">Whisper / Guidance Price</div>', unsafe_allow_html=True)
-        wc, bc = st.columns([5, 1])
-        with wc:
-            qv_whisper = st.text_input("Whisper", placeholder="e.g. $180M",
-                                       label_visibility="collapsed", key="qv_whisper_field")
-        with bc:
-            st.markdown("<div style='margin-top:4px'>", unsafe_allow_html=True)
-            qv_apply = st.button("Apply", key="qv_apply_whisper", use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+        with st.form("qv_whisper_post_form", clear_on_submit=False, border=False):
+            _wc2, _bc2 = st.columns([5, 1])
+            with _wc2:
+                qv_whisper_post = st.text_input(
+                    "Whisper",
+                    value=st.session_state.qv_whisper or "",
+                    placeholder="e.g. $180M",
+                    label_visibility="collapsed",
+                )
+            with _bc2:
+                qv_whisper_post_submit = st.form_submit_button("Apply ↵", use_container_width=True)
+        st.markdown('<div class="whisper-hint">Press ↵ to apply and rebuild the QuickVal model</div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        if qv_apply and qv_whisper != st.session_state.qv_whisper:
-            with st.spinner(f"Rebuilding QuickVal with {qv_whisper}..."):
+        if qv_whisper_post_submit and qv_whisper_post != st.session_state.qv_whisper:
+            with st.spinner(f"Rebuilding QuickVal with {qv_whisper_post}..."):
                 try:
-                    st.session_state.qv_excel = build_excel(st.session_state.qv_data,
-                                                             st.session_state.qv_t12,
-                                                             qv_whisper,
-                                                             tax_data=st.session_state.qv_tax)
-                    st.session_state.qv_whisper = qv_whisper
+                    st.session_state.qv_excel = build_excel(
+                        st.session_state.qv_data,
+                        st.session_state.qv_t12,
+                        qv_whisper_post,
+                        tax_data=st.session_state.qv_tax,
+                    )
+                    st.session_state.qv_whisper = qv_whisper_post
+                    _pipeline_upsert_qv(
+                        st.session_state.qv_key, st.session_state.qv_data,
+                        st.session_state.qv_excel, st.session_state.qv_filename,
+                        qv_whisper_post,
+                    )
                 except Exception as e:
                     logger.exception("Rebuild error")
                     st.error(f"Rebuild error: {e}")
+
+        if st.session_state.qv_whisper:
+            st.markdown(
+                f'<div class="whisper-applied">✓ Applied: {st.session_state.qv_whisper}</div>',
+                unsafe_allow_html=True,
+            )
 
         st.download_button(
             "Download QuickVal Excel",
