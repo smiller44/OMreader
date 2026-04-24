@@ -31,6 +31,8 @@ RULES:
 - "retail": if the property has ground-floor or on-site retail, write a brief description (1 sentence). If none, return null.
 - "deal_status": concise e.g. "Unpriced / Call for Offers", "Best & Final", etc.
 - "unit_mix": return as an array of objects with "type" (e.g. "1BR/1BA") and "count" (integer). Empty array if not stated.
+- "rent_comps": extract the rent comparables/survey table if present. Max 6 comps. Include subject property row if listed in the table. Return [] if absent. Never fabricate.
+- "sales_comps": extract the sales comparables table if present. Max 5 comps. Return [] if absent. Never fabricate.
 
 Schema:
 {
@@ -65,6 +67,8 @@ Schema:
   "stories": string or null,
   "amenities": string or null,
   "unit_mix": [{"type": string, "count": number}] or [],
+  "rent_comps": [{"name": string, "units": string or null, "year_built": string or null, "avg_sf": string or null, "avg_rent": string or null, "occupancy": string or null, "distance": string or null}] or [],
+  "sales_comps": [{"name": string, "date": string or null, "price": string or null, "price_per_unit": string or null, "units": string or null, "cap_rate": string or null}] or [],
   "retail": string or null,
   "location_bullets": [string],
   "in_place_rent": string or null,
@@ -162,7 +166,7 @@ def validate_deal_data(data: dict) -> dict:
     if data.get("asset_class") not in ("A", "B", "C", None):
         data["asset_class"] = None
     for field in ("key_risks", "why_this_works", "investment_thesis", "business_plan",
-                  "location_bullets", "capex_bullets", "unit_mix"):
+                  "location_bullets", "capex_bullets", "unit_mix", "rent_comps", "sales_comps"):
         if not isinstance(data.get(field), list):
             data[field] = []
     # t12_basis must be a label, never a dollar figure

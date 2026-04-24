@@ -175,6 +175,24 @@ def _build_property_rows(data: dict) -> str:
         kv("Retail",        nv(data.get("retail")) or "No retail"),
     ])
 
+def _build_rent_comps(comps: list) -> str:
+    if not comps:
+        return ""
+    header = "<tr><th>Property</th><th>Units</th><th>Yr</th><th>Avg SF</th><th>Avg Rent</th><th>Occ</th></tr>"
+    rows = "".join(
+        f'<tr><td>{c.get("name","—")}</td>'
+        f'<td>{c.get("units","—")}</td>'
+        f'<td>{c.get("year_built","—")}</td>'
+        f'<td>{c.get("avg_sf","—")}</td>'
+        f'<td>{c.get("avg_rent","—")}</td>'
+        f'<td>{c.get("occupancy","—")}</td></tr>'
+        for c in comps
+    )
+    return (
+        f'<div class="sec">Rent Comps</div>'
+        f'<table class="comps-tbl"><thead>{header}</thead><tbody>{rows}</tbody></table>'
+    )
+
 def _build_process_rows(data: dict) -> str:
     return "".join([
         kv("Broker",   nv(data.get("broker"))),
@@ -400,6 +418,11 @@ table { width: 100%; border-collapse: collapse; }
 .umv { font-size: 9px; font-weight: 600; color: #111827; padding: 1px 6px; text-align: right; }
 .umc { font-size: 8px; color: #9ca3af; padding: 1px 0; text-align: right; }
 
+.comps-tbl { width: 100%; border-collapse: collapse; margin-top: 4px; }
+.comps-tbl th { font-size: 6.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .08em; padding: 2px 6px 2px 0; border-bottom: 1px solid #e5e7eb; text-align: left; }
+.comps-tbl td { font-size: 8.5px; color: #111827; padding: 2px 6px 2px 0; border-bottom: 1px solid #f3f4f6; vertical-align: top; white-space: nowrap; }
+.comps-tbl td:first-child { font-weight: 500; white-space: normal; }
+
 .sens-wrap { padding: 6px 14px 8px; background: #ffffff; border-bottom: 2px solid #e5e7eb; }
 .sens-tbl { width: 100%; border-collapse: collapse; }
 .sens-tbl thead tr { background: #f3f4f6; }
@@ -474,8 +497,9 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "", market_data: dict 
     tax_block      = f'<div class="divider"></div><table>{kv("Tax Notes", nv(data.get("tax_notes")))}</table>' if nv(data.get("tax_notes")) else ""
     proforma_block = f'<div class="sec">Proforma Assumptions</div><table>{proforma_rows}</table>' if proforma_rows.strip() else ""
     inv_block      = f'<div class="sec">Investment Cost</div><table>{inv_rows}</table>' if inv_rows.strip() else ""
-    sens_block     = build_sensitivity(whisper, data.get("units"), data.get("t12_noi"), data.get("stab_noi"))
-    mkt_block      = build_market_block(market_data or {})
+    sens_block      = build_sensitivity(whisper, data.get("units"), data.get("t12_noi"), data.get("stab_noi"))
+    mkt_block       = build_market_block(market_data or {})
+    rent_comps_block = _build_rent_comps(data.get("rent_comps") or [])
 
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>{_HTML_CSS}</style></head><body>
@@ -504,6 +528,7 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "", market_data: dict 
     <ul>{bul(data.get("investment_thesis"), 3)}</ul>
     <div class="sec">Business Plan</div>
     <ul>{bul(data.get("business_plan"), 3)}</ul>
+    {rent_comps_block}
   </div>
   <div class="col-r">
     <div class="sec">Pricing &amp; Capex</div>

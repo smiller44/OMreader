@@ -28,6 +28,7 @@ st.markdown("""
 <style>
 /* ── App background ────────────────────────────────────────────────── */
 .stApp { background: #EEF1F6; }
+[data-testid="stForm"] { border-top: none !important; }
 
 /* ── Main content card ─────────────────────────────────────────────── */
 .block-container {
