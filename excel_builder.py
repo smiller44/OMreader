@@ -8,7 +8,10 @@ from copy import copy
 from datetime import datetime, date
 
 import openpyxl
+from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
+
+_WHITE_FILL = PatternFill(fill_type="solid", fgColor="FFFFFF")
 
 _TEMPLATE = os.path.join(os.path.dirname(__file__), "templates", "quickval_template.xlsx")
 
@@ -21,10 +24,12 @@ def _safe_float(v):
 
 
 def _write_cell(ws, row: int, col: int, value):
-    """Write a value only if it's not None; skip formula cells."""
+    """Write a value and clear any blue input-cell highlight to white."""
     if value is None:
         return
-    ws.cell(row, col).value = value
+    cell = ws.cell(row, col)
+    cell.value = value
+    cell.fill = _WHITE_FILL
 
 
 def _fill_proforma_overview(ws, data: dict, whisper: str = "", mkt: dict | None = None):
