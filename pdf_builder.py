@@ -377,7 +377,7 @@ html, body { width: 1100px; font-family: Arial, Helvetica, sans-serif; font-size
 .col-r { padding: 10px 14px; background: #f9fafb; }
 
 .sec { font-size: 7.5px; font-weight: 700; color: #1B5BAE; text-transform: uppercase; letter-spacing: .13em;
-       padding-bottom: 3px; border-bottom: 1.5px solid #1B5BAE; margin-bottom: 6px; margin-top: 10px; }
+       padding-bottom: 3px; border-bottom: 1.5px solid #1B5BAE; margin-bottom: 6px; margin-top: 8px; }
 .sec:first-child { margin-top: 0; }
 
 ul { list-style: none; padding: 0; margin: 0; }
@@ -409,11 +409,7 @@ table { width: 100%; border-collapse: collapse; }
 .sens-hl { background: #deeaf8 !important; }
 .sens-hl td { color: #1B5BAE !important; font-weight: 700; }
 
-.mid { display: grid; grid-template-columns: 1fr 1fr; background: #f3f4f6; border-bottom: 2px solid #e5e7eb; }
-.mid .col-l { background: #f3f4f6; border-right: 2px solid #e5e7eb; }
-.mid .col-r { background: #f3f4f6; }
-
-.photos { display: grid; grid-template-columns: repeat(4, 1fr); height: 230px; border-bottom: 2px solid #e5e7eb; }
+.photos { display: grid; grid-template-columns: repeat(4, 1fr); height: 185px; border-bottom: 2px solid #e5e7eb; }
 .ph { position: relative; overflow: hidden; background: #d1d5db; border-right: 2px solid #ffffff; }
 .ph:last-child { border-right: none; }
 .ph img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -422,7 +418,7 @@ table { width: 100%; border-collapse: collapse; }
        color: #ffffff; font-size: 8px; font-weight: 700; text-align: center;
        padding: 12px 0 4px; text-transform: uppercase; letter-spacing: .09em; }
 
-.bot { display: grid; grid-template-columns: repeat(3, 1fr); background: #f3f4f6; }
+.bot { display: grid; grid-template-columns: 1.15fr 0.95fr 0.9fr; background: #f3f4f6; }
 .bot .col-l { background: #f3f4f6; border-right: 2px solid #e5e7eb; }
 .bot .col-m { padding: 10px 14px; background: #f3f4f6; border-right: 2px solid #e5e7eb; }
 .bot .col-last { padding: 10px 14px; background: #f3f4f6; }
@@ -463,8 +459,11 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "", market_data: dict 
     stat_html, w_val, u_val = _build_stat_strip(data, whisper)
     capex_block, rent_met   = _build_pricing_metrics(data, w_val, u_val)
 
+    _city  = data.get("city_state") or ""
+    _zip   = data.get("zip_code") or ""
+    _cs    = f"{_city} {_zip}".strip() if _city else (_zip or None)
     parts  = " · ".join(x for x in [
-        data.get("address"), data.get("city_state"), data.get("submarket"),
+        data.get("address"), _cs, data.get("submarket"),
     ] if x)
     badges = " &nbsp;|&nbsp; ".join(x for x in [
         data.get("deal_type"), data.get("deal_status"), data.get("broker"),
@@ -525,27 +524,20 @@ def build_html(data: dict, img_b64s: dict, whisper: str = "", market_data: dict 
 {sens_block}
 {mkt_block}
 
-<div class="mid">
+<div class="bot">
   <div class="col-l">
     <div class="sec">Property Summary</div>
     <table>{proprows}</table>
   </div>
-  <div class="col-r">
+  <div class="col-m">
     <div class="sec">Location &amp; Demand Drivers</div>
     <ul>{bul(data.get("location_bullets"), 3)}</ul>
-  </div>
-</div>
-
-<div class="bot">
-  <div class="col-l">
     <div class="sec">Key Risks</div>
     <ul>{bul(data.get("key_risks"), 3)}</ul>
   </div>
-  <div class="col-m">
+  <div class="col-last">
     <div class="sec">Why This Works</div>
     <ul>{bul(data.get("why_this_works"), 3)}</ul>
-  </div>
-  <div class="col-last">
     <div class="sec">Process &amp; Status</div>
     <table>{procrows}</table>
   </div>
