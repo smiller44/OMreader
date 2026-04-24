@@ -18,7 +18,7 @@ from market_data import match_and_lookup
 from msa import msa_for_deal, BROKERAGE_OPTIONS
 from pdf_builder import build_pdf
 from t12_parser import parse_t12, COA_DESCRIPTIONS
-from tax_parser import parse_tax_bill
+from tax_parser import parse_tax_bill, aggregate_tax_bills
 
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────────
 
@@ -292,6 +292,7 @@ _SS_DEFAULTS = {
     # quickval tab
     "qv_key": None, "qv_excel": None, "qv_data": None,
     "qv_t12": None, "qv_whisper": "", "qv_filename": None,
+    "qv_tax": None,
     "qv_om_key": None, "qv_om_data": None,
     "qv_ai_mappings": {},
 }
@@ -903,9 +904,10 @@ with tab_qv:
         qv_t12_file = st.file_uploader("T12", type=["xlsx", "xls", "pdf"],
                                        label_visibility="collapsed", key="qv_t12_upload")
     with col_tax:
-        _upload_label("Tax Bill", required=False)
-        qv_tax_file = st.file_uploader("Tax Bill", type=["pdf", "xlsx", "xls"],
-                                       label_visibility="collapsed", key="qv_tax_upload")
+        _upload_label("Tax Bill(s)", required=False)
+        qv_tax_files = st.file_uploader("Tax Bill", type=["pdf", "xlsx", "xls"],
+                                        label_visibility="collapsed", key="qv_tax_upload",
+                                        accept_multiple_files=True)
 
     # ── Extract OM on new upload; clear if removed ────────────────────────────
     qv_om_upload_key = qv_om_file.name if qv_om_file else None
@@ -944,7 +946,9 @@ with tab_qv:
             qv_manual = {k: v for k, v in qv_manual.items() if v}
 
     # ── Build trigger: any of the three files changing rebuilds the model ─────
-    qv_upload_key = "|".join(f.name for f in [qv_om_file, qv_t12_file, qv_tax_file] if f)
+    qv_upload_key = "|".join(
+        f.name for f in ([qv_om_file, qv_t12_file] + (qv_tax_files or [])) if f
+    )
 
     if qv_t12_file and qv_upload_key != st.session_state.qv_key:
 
@@ -993,21 +997,31 @@ with tab_qv:
                 if v:
                     qv_data[k] = v
 
-            if qv_tax_file:
-                st.write("Parsing tax bill...")
-                try:
-                    tax_data = parse_tax_bill(qv_tax_file.read(), qv_tax_file.name)
-                    for k, v in tax_data.items():
+            agg_tax_data = None
+            if qv_tax_files:
+                st.write(f"Parsing {len(qv_tax_files)} tax bill(s)...")
+                parsed_bills = []
+                for tf in qv_tax_files:
+                    try:
+                        bill = parse_tax_bill(tf.read(), tf.name)
+                        parsed_bills.append(bill)
+                    except Exception as e:
+                        logger.warning("Tax bill parse error (%s): %s", tf.name, e)
+                        st.warning(f"Could not parse {tf.name}: {e}")
+                if parsed_bills:
+                    agg_tax_data = aggregate_tax_bills(parsed_bills)
+                    for k, v in agg_tax_data.items():
                         if v is not None:
                             qv_data[k] = v
-                except Exception as e:
-                    logger.warning("Tax bill parse error: %s", e)
-                    st.warning(f"Tax bill could not be parsed: {e}")
+                    if len(parsed_bills) > 1:
+                        st.write(f"  Aggregated {len(parsed_bills)} parcels: "
+                                 f"assessed ${agg_tax_data.get('tax_assessment', 0):,.0f}, "
+                                 f"annual tax ${agg_tax_data.get('tax_annual', 0):,.0f}")
 
             # Step 4: Build Excel
             st.write("Building Excel model...")
             try:
-                excel_out = build_excel(qv_data, qv_t12_parsed, "")
+                excel_out = build_excel(qv_data, qv_t12_parsed, "", tax_data=agg_tax_data)
             except Exception as e:
                 logger.exception("Excel build error")
                 _status.update(label="Excel build failed", state="error")
@@ -1040,6 +1054,7 @@ with tab_qv:
         st.session_state.qv_excel    = excel_out
         st.session_state.qv_data     = qv_data
         st.session_state.qv_t12      = qv_t12_parsed
+        st.session_state.qv_tax      = agg_tax_data
         st.session_state.qv_whisper  = ""
         st.session_state.qv_filename = qv_filename
 
@@ -1069,7 +1084,8 @@ with tab_qv:
                 try:
                     st.session_state.qv_excel = build_excel(st.session_state.qv_data,
                                                              st.session_state.qv_t12,
-                                                             qv_whisper)
+                                                             qv_whisper,
+                                                             tax_data=st.session_state.qv_tax)
                     st.session_state.qv_whisper = qv_whisper
                 except Exception as e:
                     logger.exception("Rebuild error")

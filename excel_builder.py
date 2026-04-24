@@ -125,12 +125,59 @@ def _fill_t12_intake(ws_intake, t12_parsed: dict):
     ws_intake.cell(40, 19).value = f"=P{noi_row}"
 
 
-def build_excel(data: dict, t12_parsed=None, whisper: str = "", market_data: dict | None = None) -> bytes:
+def _fill_ret_schedule(ws, data: dict, tax_data: dict | None):
+    """
+    Fill the Real Estate Tax Schedule (cols V–AF, rows 21–41).
+
+    Col 22 = V  (re-assessment year, current assessed value, millage, etc.)
+    Col 23 = W  (W29: also set to current assessed value as starting market value)
+
+    Key inputs:
+      V22 (row 22, col 22): Re-Assessment Year — year after closing
+      V29 (row 29, col 22): Full Market Value (pre-sale assessed value from tax bill)
+      W29 (row 29, col 23): Same — formula chain starts from W29
+      V35 (row 35, col 22): Millage Rate (implied from tax bill, else default)
+      V38 (row 38, col 22): Non Ad-Valorem Tax (noxious weed, conservation, etc.)
+    """
+    # Re-assessment year: CFO date year + 1, or current year + 1
+    cfo = ws.cell(10, 3).value  # C10 = Initial CFO Date (already in sheet)
+    try:
+        if isinstance(cfo, (datetime, date)):
+            reassess_year = cfo.year + 1
+        else:
+            reassess_year = datetime.now().year + 1
+    except Exception:
+        reassess_year = datetime.now().year + 1
+    _write_cell(ws, 22, 22, reassess_year)
+
+    if tax_data:
+        assessed = tax_data.get("tax_assessment")
+        millage  = tax_data.get("implied_millage")
+        non_adv  = tax_data.get("non_adv_tax")
+
+        # Current assessed value → Full Market Value pre-sale (V29 and W29)
+        if assessed:
+            _write_cell(ws, 29, 22, assessed)
+            _write_cell(ws, 29, 23, assessed)
+
+        # Implied millage rate
+        if millage:
+            _write_cell(ws, 35, 22, millage)
+
+        # Non ad-valorem tax (noxious weed, conservation, etc.)
+        if non_adv is not None:
+            _write_cell(ws, 38, 22, non_adv)
+
+
+def build_excel(data: dict, t12_parsed=None, whisper: str = "",
+                market_data: dict | None = None,
+                tax_data: dict | None = None) -> bytes:
     """
     Build a pre-filled QuickVal workbook.
     - data: merged deal dict (from OM + financial workbook + manual)
     - t12_parsed: output of t12_parser.parse_t12()
     - whisper: optional whisper price string
+    - tax_data: aggregated output of tax_parser.aggregate_tax_bills()
     Returns raw bytes of the .xlsx file.
     """
     wb = openpyxl.load_workbook(_TEMPLATE)
@@ -138,6 +185,9 @@ def build_excel(data: dict, t12_parsed=None, whisper: str = "", market_data: dic
     # Fill QuickVal Proforma overview
     ws_pf = wb["QuickVal Proforma"]
     _fill_proforma_overview(ws_pf, data, whisper, market_data)
+
+    # Fill RET schedule
+    _fill_ret_schedule(ws_pf, data, tax_data)
 
     # Fill T12 Intake with monthly data
     if t12_parsed:
