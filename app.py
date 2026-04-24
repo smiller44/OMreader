@@ -248,13 +248,11 @@ hr { border-color: #DDE3EC !important; }
 .badge-req  { background: #1B5BAE; color: #fff; }
 .badge-opt  { background: #EEF1F6; color: #6B7A90; border: 1px solid #C4CFE0; }
 
-/* ── Whisper row (shown in results section) ────────────────────────── */
+/* ── Whisper row ───────────────────────────────────────────────────── */
 .whisper-row {
-    background: #F0F5FF;
-    border: 1px solid #C0D0EE;
-    border-radius: 7px;
-    padding: 12px 16px 4px;
-    margin: 16px 0 12px;
+    border-top: 1px solid #DDE3EC;
+    padding: 14px 0 4px;
+    margin: 14px 0 8px;
 }
 .whisper-row-label {
     font-size: 10px;
@@ -264,6 +262,7 @@ hr { border-color: #DDE3EC !important; }
     letter-spacing: 0.09em;
     margin-bottom: 4px;
 }
+[data-testid="stForm"] { border: none !important; padding: 0 !important; }
 
 .whisper-hint {
     font-size: 11px;
@@ -619,6 +618,7 @@ with tab_pg:
         st.session_state.pg_filename = filename
         st.session_state.pg_mkt      = mkt_data
         _pipeline_upsert(pg_upload_key, data, pdf_out, filename, st.session_state.pg_whisper)
+        st.rerun()
 
     if st.session_state.pg_pdf is not None:
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
@@ -1146,6 +1146,7 @@ with tab_qv:
         # Pipeline key: use OM filename if OM uploaded (links to 1-pager entry), else T12
         qv_pipeline_key = qv_om_file.name if qv_om_file else qv_t12_file.name
         _pipeline_upsert_qv(qv_pipeline_key, qv_data, excel_out, qv_filename, st.session_state.qv_whisper)
+        st.rerun()
 
     if st.session_state.qv_excel is not None:
         st.markdown('<div class="sec-divider"></div>', unsafe_allow_html=True)
