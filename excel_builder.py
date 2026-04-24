@@ -37,6 +37,76 @@ def _clear_fill(ws, row: int, col: int):
     ws.cell(row, col).fill = _WHITE_FILL
 
 
+_CITY_COUNTY: dict[str, str] = {
+    # WA
+    "seattle": "King County", "bellevue": "King County", "redmond": "King County",
+    "kirkland": "King County", "renton": "King County", "issaquah": "King County",
+    "kent": "King County", "auburn": "King County", "federal way": "King County",
+    "tacoma": "Pierce County", "olympia": "Thurston County", "spokane": "Spokane County",
+    "everett": "Snohomish County", "shoreline": "King County", "burien": "King County",
+    # OR
+    "portland": "Multnomah County", "beaverton": "Washington County",
+    "hillsboro": "Washington County", "gresham": "Multnomah County",
+    "eugene": "Lane County", "salem": "Marion County",
+    # CA
+    "los angeles": "Los Angeles County", "san diego": "San Diego County",
+    "san francisco": "San Francisco County", "san jose": "Santa Clara County",
+    "oakland": "Alameda County", "sacramento": "Sacramento County",
+    "fresno": "Fresno County", "long beach": "Los Angeles County",
+    "anaheim": "Orange County", "irvine": "Orange County",
+    "riverside": "Riverside County", "ontario": "San Bernardino County",
+    "santa ana": "Orange County", "pasadena": "Los Angeles County",
+    # TX
+    "houston": "Harris County", "san antonio": "Bexar County", "dallas": "Dallas County",
+    "austin": "Travis County", "fort worth": "Tarrant County", "el paso": "El Paso County",
+    "arlington": "Tarrant County", "plano": "Collin County",
+    # FL
+    "miami": "Miami-Dade County", "orlando": "Orange County", "tampa": "Hillsborough County",
+    "jacksonville": "Duval County", "st. petersburg": "Pinellas County",
+    "fort lauderdale": "Broward County", "boca raton": "Palm Beach County",
+    # GA
+    "atlanta": "Fulton County", "savannah": "Chatham County", "augusta": "Richmond County",
+    # NC
+    "charlotte": "Mecklenburg County", "raleigh": "Wake County",
+    "durham": "Durham County", "greensboro": "Guilford County",
+    # AZ
+    "phoenix": "Maricopa County", "tucson": "Pima County",
+    "scottsdale": "Maricopa County", "tempe": "Maricopa County",
+    "mesa": "Maricopa County", "chandler": "Maricopa County",
+    # CO
+    "denver": "Denver County", "aurora": "Arapahoe County",
+    "colorado springs": "El Paso County", "boulder": "Boulder County",
+    # IL
+    "chicago": "Cook County", "aurora": "Kane County", "naperville": "DuPage County",
+    # NY
+    "new york": "New York County", "brooklyn": "Kings County",
+    "bronx": "Bronx County", "queens": "Queens County", "staten island": "Richmond County",
+    # WA DC
+    "washington": "District of Columbia",
+    # MA
+    "boston": "Suffolk County", "cambridge": "Middlesex County",
+    # MN
+    "minneapolis": "Hennepin County", "st. paul": "Ramsey County",
+    # NV
+    "las vegas": "Clark County", "henderson": "Clark County", "reno": "Washoe County",
+    # TN
+    "nashville": "Davidson County", "memphis": "Shelby County",
+    # OH
+    "columbus": "Franklin County", "cleveland": "Cuyahoga County",
+    "cincinnati": "Hamilton County",
+    # MI
+    "detroit": "Wayne County", "grand rapids": "Kent County",
+}
+
+
+def _county_from_city_state(city_state: str) -> str | None:
+    """Derive county from 'City, ST' string using a major-market lookup."""
+    if not city_state:
+        return None
+    city = city_state.split(",")[0].strip().lower()
+    return _CITY_COUNTY.get(city)
+
+
 def _fill_proforma_overview(ws, data: dict, whisper: str = "", mkt: dict | None = None):
     """Fill the Property Overview and Purchase Summary section (col C)."""
     # Row → (col C value)
@@ -45,6 +115,7 @@ def _fill_proforma_overview(ws, data: dict, whisper: str = "", mkt: dict | None 
         6:  data.get("address"),
         7:  data.get("city_state"),
         8:  data.get("submarket"),
+        9:  data.get("county") or _county_from_city_state(data.get("city_state", "")),
         11: data.get("year_built"),
         12: _safe_float(data.get("units")),
         13: _safe_float(str(data.get("avg_sf", "")).replace(" SF", "")),
