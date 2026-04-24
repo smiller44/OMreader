@@ -11,7 +11,7 @@ import openpyxl
 from openpyxl.styles import PatternFill
 from openpyxl.utils import get_column_letter
 
-_WHITE_FILL = PatternFill(fill_type="solid", fgColor="FFFFFF")
+_WHITE_FILL = PatternFill("solid", fgColor="FFFFFF")
 
 _TEMPLATE = os.path.join(os.path.dirname(__file__), "templates", "quickval_template.xlsx")
 
