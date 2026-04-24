@@ -550,7 +550,7 @@ _YARDI_ACCT_MAP: dict[str, str] = {
 _NOI_PATTERNS = (
     "net operating income", "net operating cash flow", "operating cash flow",
     "total noi", "property noi", "net income from operations",
-    "net operating", "total operating income",
+    "net operating",
 )
 
 # High-level aggregate rows that are always skipped (pure roll-ups we never want).
@@ -561,6 +561,8 @@ _ALWAYS_SKIP = frozenset({
     "total net potential rent", "total non revenue units",
     "total controllable expenses", "total expenses",
     "net rental income", "total net rental",
+    # Entrata/Griffis aggregates (EGI-level, not NOI)
+    "total operating income", "total income", "net income",
 })
 
 
@@ -572,9 +574,16 @@ _ACCT_RE = re.compile(r"^\d{4,5}(-\d+)*$")
 _ACCT_INLINE_RE = re.compile(r"^(\d{4,5}(?:-\d+)*)\s+(.+)$")
 
 
-def _extract_acct_name(row: list) -> tuple[str, str]:
-    """Return (acct_code, name) handling variable column layouts."""
+def _extract_acct_name(row: list, name_only: bool = False) -> tuple[str, str]:
+    """Return (acct_code, name) handling variable column layouts.
+
+    name_only=True: Entrata/Griffis format where col A = description,
+    col B = first month value (no separate account-code column).
+    """
     col0 = str(row[0]).strip() if row else ""
+    if name_only:
+        return "", col0
+
     col1 = str(row[1]).strip() if len(row) > 1 else ""
     col2 = str(row[2]).strip() if len(row) > 2 else ""
 
@@ -714,7 +723,8 @@ def _detect_header_row_pdf(rows: list[list]):
 
 # ── Core parse ─────────────────────────────────────────────────────────────────
 
-def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, acct_map: dict):
+def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int,
+                acct_map: dict, name_only: bool = False):
     n_months = total_col - first_col
     line_items, unmapped, coa = [], [], {}
     reported_noi = None
@@ -728,7 +738,7 @@ def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, 
         if len(row) <= total_col:
             continue
 
-        acct_raw, name_raw = _extract_acct_name(row)
+        acct_raw, name_raw = _extract_acct_name(row, name_only)
         # Allow blank acct_raw as long as we have a name (e.g. CBRE blank-code rows)
         if not name_raw:
             continue
@@ -740,6 +750,11 @@ def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, 
             monthly.append(0.0)
         total = sum(monthly[:n_months])
         has_values = any(v != 0 for v in monthly[:n_months])
+
+        # In name-only format, zero-value rows are section headers (e.g. "  INCOME").
+        # Skip them — they have no account code and no data to contribute.
+        if name_only and not acct_raw and not has_values:
+            continue
 
         # ── NOI capture (must happen before skip guards) ──────────────────────
         if reported_noi is None and any(p in name_lower for p in _NOI_PATTERNS):
@@ -817,6 +832,17 @@ def _excel_to_rows(file_bytes: bytes):
     wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     ws = wb.active
     hdr_row, first_col, total_col, months = _detect_header_row(ws)
+
+    # Name-only format (Entrata/Griffis): col A = description, col B = first month.
+    # Detected when first month is in col 2 (1-based), i.e. immediately after col A.
+    name_only = (first_col == 2)
+
+    # Trailing reports may have 13+ months; keep only the most recent 12.
+    if len(months) > 12:
+        skip = len(months) - 12
+        first_col += skip   # advance data-start column (1-based)
+        months = months[skip:]
+
     rows = []
     for r in range(hdr_row, ws.max_row + 1):
         rows.append([ws.cell(r, c).value for c in range(1, ws.max_column + 1)])
@@ -828,7 +854,7 @@ def _excel_to_rows(file_bytes: bytes):
             (str(v).strip() if v is not None else "")
             for v in row
         ])
-    return str_rows, 0, first_col - 1, total_col - 1, months
+    return str_rows, 0, first_col - 1, total_col - 1, months, name_only
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -844,12 +870,13 @@ def parse_t12(file_bytes: bytes, extra_mappings: dict = None) -> dict:
     if is_pdf:
         rows = _pdf_to_rows(file_bytes)
         hdr_idx, first_col, total_col, months = _detect_header_row_pdf(rows)
+        name_only = False
     else:
-        rows, hdr_idx, first_col, total_col, months = _excel_to_rows(file_bytes)
+        rows, hdr_idx, first_col, total_col, months, name_only = _excel_to_rows(file_bytes)
 
     n_months = total_col - first_col
     line_items, unmapped, coa_raw, reported_noi = _parse_rows(
-        rows, hdr_idx, first_col, total_col, acct_map
+        rows, hdr_idx, first_col, total_col, acct_map, name_only
     )
 
     # ── Sign normalisation ────────────────────────────────────────────────────
