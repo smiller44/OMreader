@@ -360,6 +360,12 @@ def _classify_unmapped(unmapped: list, api_key: str) -> dict:
         "entity distributions, owner draws — NEVER for rent income of any kind\n"
         "- CRITICAL: Any item containing 'rent', 'GPR', 'gross potential', 'market rate', 'scheduled rent', "
         "'potential rent', or 'residential rent' MUST be classified as 'mkt'. NEVER classify rent income as 'nai' or 'nae'\n"
+        "- ENTRATA FORMAT: Items whose name starts with 'Utilities - ' (e.g. 'Utilities - Electric-Common Areas', "
+        "'Utilities - Gas-Common Areas', 'Utilities - Water', 'Utilities - Sewer', 'Utilities - Trash') are utility "
+        "costs billed back to residents as income — classify ALL of these as 'rubs', NOT 'util'. "
+        "The actual utility expenses appear without the 'Utilities - ' prefix.\n"
+        "- 'Package Delivery or Locker Fee' and similar package locker items with a POSITIVE total are 'oinc' (income); "
+        "if negative or in an expense context they are 'adm'\n"
         "- Return ONLY a valid JSON object: {\"<prefix>\": \"<coa_code>\", ...}"
     )
     try:

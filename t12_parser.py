@@ -563,6 +563,8 @@ _ALWAYS_SKIP = frozenset({
     "net rental income", "total net rental",
     # Entrata/Griffis aggregates (EGI-level, not NOI)
     "total operating income", "total income", "net income",
+    # Entrata section subtotals (all-caps, no "total" prefix)
+    "operating expenses",
 })
 
 
@@ -891,7 +893,8 @@ def parse_t12(file_bytes: bytes, extra_mappings: dict = None) -> dict:
     })
     _must_negative = frozenset({"ltl", "vac", "conc", "empmo", "down", "bd"})
 
-    _recovery_words = frozenset({"recovery", "recoveries", "reimburse", "reimbursement"})
+    # "gain" exempts "Gain to Lease" (ltl, legitimately positive) from the must-negative flip.
+    _recovery_words = frozenset({"recovery", "recoveries", "reimburse", "reimbursement", "gain"})
 
     for item in line_items:
         code  = item["coa_code"]
