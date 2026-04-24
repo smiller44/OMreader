@@ -125,11 +125,14 @@ def _fill_proforma_overview(ws, data: dict, whisper: str = "", mkt: dict | None 
         _write_cell(ws, row, 3, val)
 
     # Purchase price
-    price_str = whisper or data.get("purchase_price")
-    price = _safe_float(price_str)
-    if price:
-        _write_cell(ws, 21, 3, price)   # Whisper Price
-        _write_cell(ws, 23, 3, price)   # Purchase Price
+    whisper_price = _safe_float(whisper) if whisper else None
+    om_price      = _safe_float(data.get("purchase_price"))
+    if whisper_price:
+        _write_cell(ws, 21, 3, whisper_price)          # Whisper Price
+        _write_cell(ws, 23, 3, whisper_price * 0.95)   # Purchase Price = 5% below whisper
+    elif om_price:
+        _write_cell(ws, 21, 3, om_price)
+        _write_cell(ws, 23, 3, om_price)
 
     # Exit cap
     exit_cap = _safe_float(data.get("exit_cap", "").replace("%", "")) if data.get("exit_cap") else None
@@ -210,7 +213,7 @@ def _fill_payroll_schedule(ws, units: int):
     """Write head counts into the payroll schedule (col W = col 23, rows 5–14)."""
     if not units or units <= 0:
         return
-    per_100 = max(1, -(-units // 100))  # ceiling division
+    per_100 = max(1, units // 100)
     head_counts = {
         5:  1,        # Manager
         6:  0,        # Assistant Manager
