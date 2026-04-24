@@ -4,7 +4,7 @@ All account-code → COA mapping is handled by Claude (via extra_mappings).
 """
 import io
 import re
-from datetime import datetime
+from datetime import datetime, date as date_type
 
 import openpyxl
 
@@ -596,19 +596,28 @@ def _to_float(v) -> float:
 
 # ── Excel header detection ─────────────────────────────────────────────────────
 
+_MONTH_STR_RE = re.compile(
+    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[.\s\-,]+(\d{2,4})", re.I
+)
+
+
 def _detect_header_row(ws) -> tuple[int, int, int, list[str]]:
-    for r in range(1, 20):
+    for r in range(1, 40):
         row = [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
         dates, total_col = [], None
         for ci, v in enumerate(row, 1):
-            if isinstance(v, datetime):
-                dates.append((ci, v.strftime("%b %Y")))
+            if isinstance(v, (datetime, date_type)):
+                dt = v if isinstance(v, datetime) else datetime(v.year, v.month, v.day)
+                dates.append((ci, dt.strftime("%b %Y")))
             elif isinstance(v, str):
-                if re.match(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}", v):
-                    dates.append((ci, v))
+                m = _MONTH_STR_RE.match(v.strip())
+                if m:
+                    yr = m.group(2)
+                    yr = "20" + yr if len(yr) == 2 else yr
+                    dates.append((ci, f"{m.group(1)[:3].capitalize()} {yr}"))
                 elif v.strip().lower() == "total":
                     total_col = ci
-        if len(dates) >= 6:
+        if len(dates) >= 3:
             if total_col is None:
                 total_col = dates[-1][0] + 1
             return r, dates[0][0], total_col, [d[1] for d in dates]
