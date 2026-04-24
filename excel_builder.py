@@ -107,6 +107,21 @@ def _county_from_city_state(city_state: str) -> str | None:
     return _CITY_COUNTY.get(city)
 
 
+def _parking_spaces(v) -> float | None:
+    """Extract a parking space count from strings like '357 spaces', '215 total', '244'."""
+    import re
+    if v is None:
+        return None
+    s = str(v).strip()
+    # Prefer a number immediately followed by (or preceded by) 'total'
+    m = re.search(r"([\d,]+)\s*(?:total|spaces total)", s, re.I)
+    if not m:
+        m = re.search(r"total[^\d]*([\d,]+)", s, re.I)
+    if not m:
+        m = re.search(r"([\d,]+)", s)
+    return _safe_float(m.group(1).replace(",", "")) if m else None
+
+
 def _fill_proforma_overview(ws, data: dict, whisper: str = "", mkt: dict | None = None):
     """Fill the Property Overview and Purchase Summary section (col C)."""
     # Row → (col C value)
@@ -119,6 +134,7 @@ def _fill_proforma_overview(ws, data: dict, whisper: str = "", mkt: dict | None 
         11: data.get("year_built"),
         12: _safe_float(data.get("units")),
         13: _safe_float(str(data.get("avg_sf", "")).replace(" SF", "")),
+        14: _parking_spaces(data.get("parking")),
         17: data.get("broker"),
     }
     for row, val in fields.items():
