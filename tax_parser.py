@@ -71,8 +71,8 @@ def _parse_pdf(file_bytes: bytes) -> dict:
         for page in pdf.pages:
             text += (page.extract_text() or "") + "\n"
 
-    # Try King County / WA table format first, then fall back to generic patterns
-    out = _parse_king_county(text) or _parse_generic(text)
+    # Try parsers in order; fall back to generic patterns
+    out = _parse_king_county(text) or _parse_cambridge_ma(text) or _parse_generic(text)
     out["tax_notes"] = _build_notes(out)
     return out
 
@@ -126,6 +126,61 @@ def _parse_king_county(text: str) -> dict | None:
     if tax_year:
         out["tax_year"] = tax_year
 
+    if annual_tax and assessed > 0:
+        out["implied_millage"] = annual_tax / assessed
+
+    return out
+
+
+def _parse_cambridge_ma(text: str) -> dict | None:
+    """
+    Parse Cambridge MA / Massachusetts assessor tax bill format.
+    Looks for 'Total Taxable Value' (assessed) and 'RES TAX' or tax rate patterns.
+    Also handles 'Community Preservation Act' (CPA) surcharge as non ad-valorem.
+    Returns None if this doesn't look like a Cambridge MA bill.
+    """
+    DOLLAR = r"\$?([\d,]+\.?\d*)"
+
+    # Assessed value — Cambridge uses "Total Taxable Value" or "Assessed Value"
+    assessed = None
+    for pat in [r"Total\s+Taxable\s+Value\s*[:\-]?\s*" + DOLLAR,
+                r"Assessed\s+Value\s*[:\-]?\s*" + DOLLAR]:
+        m = re.search(pat, text, re.I)
+        if m:
+            assessed = _num(m.group(1))
+            break
+
+    if assessed is None:
+        return None
+
+    # Annual tax — "RES TAX" line is the base property tax (exclude CPA surcharge)
+    annual_tax = None
+    for pat in [r"RES\s+TAX\s*" + DOLLAR,
+                r"(?:Real\s+Estate\s+)?Tax\s*[:\-]?\s*" + DOLLAR]:
+        m = re.search(pat, text, re.I)
+        if m:
+            annual_tax = _num(m.group(1))
+            break
+
+    # CPA (Community Preservation Act) surcharge → non ad-valorem
+    non_adv = None
+    m = re.search(r"CPA\s*" + DOLLAR, text, re.I)
+    if m:
+        non_adv = _num(m.group(1))
+
+    # Tax year
+    tax_year = None
+    m = re.search(r"FY\s*(\d{4})", text, re.I)
+    if m:
+        tax_year = m.group(1)
+
+    out: dict = {"tax_assessment": assessed}
+    if annual_tax:
+        out["tax_annual"] = annual_tax
+    if non_adv:
+        out["non_adv_tax"] = non_adv
+    if tax_year:
+        out["tax_year"] = tax_year
     if annual_tax and assessed > 0:
         out["implied_millage"] = annual_tax / assessed
 

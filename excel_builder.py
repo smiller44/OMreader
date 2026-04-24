@@ -84,7 +84,7 @@ _CITY_COUNTY: dict[str, str] = {
     # WA DC
     "washington": "District of Columbia",
     # MA
-    "boston": "Suffolk County", "cambridge": "Middlesex County",
+    "boston": "Suffolk County", "cambridge": "Middlesex County", "somerville": "Middlesex County",
     # MN
     "minneapolis": "Hennepin County", "st. paul": "Ramsey County",
     # NV
@@ -210,7 +210,7 @@ def _fill_payroll_schedule(ws, units: int):
     """Write head counts into the payroll schedule (col W = col 23, rows 5–14)."""
     if not units or units <= 0:
         return
-    per_100 = max(1, units // 100)
+    per_100 = max(1, -(-units // 100))  # ceiling division
     head_counts = {
         5:  1,        # Manager
         6:  0,        # Assistant Manager

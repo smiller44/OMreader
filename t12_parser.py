@@ -547,16 +547,21 @@ _YARDI_ACCT_MAP: dict[str, str] = {
     "9100": "nai",
 }
 
-_SKIP_PATTERNS = {
-    "total", "subtotal", "net ", "effective gross", "net operating",
-    "n/a income", "n/a expense", "operating cash flow",
-}
-
 _NOI_PATTERNS = (
     "net operating income", "net operating cash flow", "operating cash flow",
     "total noi", "property noi", "net income from operations",
     "net operating", "total operating income",
 )
+
+# High-level aggregate rows that are always skipped (pure roll-ups we never want).
+_ALWAYS_SKIP = frozenset({
+    "net operating", "effective gross", "n/a income", "n/a expense",
+    "operating cash flow", "total revenue", "total net rental income",
+    "total rental income", "total other operating income",
+    "total net potential rent", "total non revenue units",
+    "total controllable expenses", "total expenses",
+    "net rental income", "total net rental",
+})
 
 
 def _acct_prefix(code: str) -> str:
@@ -597,12 +602,44 @@ def _to_float(v) -> float:
 # ── Excel header detection ─────────────────────────────────────────────────────
 
 _MONTH_STR_RE = re.compile(
-    r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[.\s\-,]+(\d{2,4})", re.I
+    r"(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+    r"['\-.\s,/]*(\d{2,4})?",
+    re.I,
 )
+
+# MM/DD/YYYY or MM/DD/YY date strings (e.g. CBRE Condensed format "03/31/2025")
+_MDY_RE = re.compile(r"^(\d{1,2})/(\d{1,2})/(\d{2,4})$")
+
+_BARE_MONTH_RE = re.compile(
+    r"^(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)$",
+    re.I,
+)
+
+_MONTHS_ORDER = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"]
+
+
+def _month_label(mon_str: str, year_str: str | None, prev_label: str | None) -> str:
+    """Build 'Mon YYYY' string, inferring year from sequence if absent."""
+    mon3 = mon_str[:3].capitalize()
+    if year_str:
+        yr = "20" + year_str if len(year_str) == 2 else year_str
+        return f"{mon3} {yr}"
+    if prev_label:
+        try:
+            prev_dt = datetime.strptime(prev_label, "%b %Y")
+            # Advance one month
+            m = prev_dt.month % 12 + 1
+            y = prev_dt.year + (1 if prev_dt.month == 12 else 0)
+            return datetime(y, m, 1).strftime("%b %Y")
+        except Exception:
+            pass
+    return f"{mon3} ???"
 
 
 def _detect_header_row(ws) -> tuple[int, int, int, list[str]]:
-    for r in range(1, 40):
+    for r in range(1, 50):
         row = [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
         dates, total_col = [], None
         for ci, v in enumerate(row, 1):
@@ -610,13 +647,28 @@ def _detect_header_row(ws) -> tuple[int, int, int, list[str]]:
                 dt = v if isinstance(v, datetime) else datetime(v.year, v.month, v.day)
                 dates.append((ci, dt.strftime("%b %Y")))
             elif isinstance(v, str):
-                m = _MONTH_STR_RE.match(v.strip())
-                if m:
-                    yr = m.group(2)
-                    yr = "20" + yr if len(yr) == 2 else yr
-                    dates.append((ci, f"{m.group(1)[:3].capitalize()} {yr}"))
-                elif v.strip().lower() == "total":
+                s = v.strip()
+                if "total" in s.lower() and not _MONTH_STR_RE.match(s):
                     total_col = ci
+                    continue
+                # MM/DD/YYYY (CBRE Condensed format)
+                mdy = _MDY_RE.match(s)
+                if mdy:
+                    mo, day, yr = int(mdy.group(1)), int(mdy.group(2)), mdy.group(3)
+                    yr = "20" + yr if len(yr) == 2 else yr
+                    try:
+                        dt = datetime(int(yr), mo, 1)
+                        dates.append((ci, dt.strftime("%b %Y")))
+                        continue
+                    except ValueError:
+                        pass
+                m = _MONTH_STR_RE.match(s)
+                if m:
+                    prev = dates[-1][1] if dates else None
+                    dates.append((ci, _month_label(m.group(1), m.group(2), prev)))
+                elif _BARE_MONTH_RE.match(s):
+                    prev = dates[-1][1] if dates else None
+                    dates.append((ci, _month_label(s, None, prev)))
         if len(dates) >= 3:
             if total_col is None:
                 total_col = dates[-1][0] + 1
@@ -639,16 +691,24 @@ def _pdf_to_rows(file_bytes: bytes) -> list[list]:
 
 
 def _detect_header_row_pdf(rows: list[list]):
-    month_re = re.compile(r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[- ]\d{4}", re.I)
     for i, row in enumerate(rows):
-        months = [(ci, v) for ci, v in enumerate(row) if month_re.match(v)]
-        if len(months) >= 6:
-            month_labels = [re.sub(r"[-]", " ", v) for _, v in months]
-            total_col = next(
-                (ci for ci, v in enumerate(row) if v.strip().lower() == "total"),
-                months[-1][0] + 1,
-            )
-            return i, months[0][0], total_col, month_labels
+        dates, total_col = [], None
+        for ci, v in enumerate(row):
+            s = str(v).strip() if v else ""
+            if s.lower() == "total":
+                total_col = ci
+                continue
+            m = _MONTH_STR_RE.match(s)
+            if m:
+                prev = dates[-1][1] if dates else None
+                dates.append((ci, _month_label(m.group(1), m.group(2), prev)))
+            elif _BARE_MONTH_RE.match(s):
+                prev = dates[-1][1] if dates else None
+                dates.append((ci, _month_label(s, None, prev)))
+        if len(dates) >= 3:
+            if total_col is None:
+                total_col = dates[-1][0] + 1
+            return i, dates[0][0], total_col, [d[1] for d in dates]
     raise ValueError("Could not detect month header row in PDF T12.")
 
 
@@ -659,30 +719,81 @@ def _parse_rows(rows: list[list], hdr_idx: int, first_col: int, total_col: int, 
     line_items, unmapped, coa = [], [], {}
     reported_noi = None
 
+    # Track whether any individual (account-code) data rows have been seen since
+    # the last section-header boundary. Used to decide whether "Total X" leaf rows
+    # (present in CBRE Condensed and similar formats) should be kept or dropped.
+    section_had_accounts = False
+
     for row in rows[hdr_idx + 1:]:
         if len(row) <= total_col:
             continue
+
         acct_raw, name_raw = _extract_acct_name(row)
-        if not acct_raw or not name_raw:
+        # Allow blank acct_raw as long as we have a name (e.g. CBRE blank-code rows)
+        if not name_raw:
             continue
 
-        name_lower = name_raw.lower()
+        name_lower = name_raw.strip().lower()
 
-        if any(p in name_lower for p in _SKIP_PATTERNS):
-            if reported_noi is None and any(p in name_lower for p in _NOI_PATTERNS):
-                reported_noi = _to_float(row[total_col])
-            continue
-
-        prefix   = _acct_prefix(acct_raw)
-        coa_code = acct_map.get(prefix)
-        monthly  = [_to_float(row[first_col + i] if first_col + i < len(row) else 0) for i in range(n_months)]
-        # Pad to 12 so T12 Intake cols D–O are always fully populated
+        monthly = [_to_float(row[first_col + i] if first_col + i < len(row) else 0) for i in range(n_months)]
         while len(monthly) < 12:
             monthly.append(0.0)
-        total    = sum(monthly[:n_months])
+        total = sum(monthly[:n_months])
+        has_values = any(v != 0 for v in monthly[:n_months])
 
+        # ── NOI capture (must happen before skip guards) ──────────────────────
+        if reported_noi is None and any(p in name_lower for p in _NOI_PATTERNS):
+            if has_values:
+                reported_noi = total
+
+        # ── Always-skip aggregates ───────────────────────────────────────────
+        if any(p in name_lower for p in _ALWAYS_SKIP):
+            # Treat as a section boundary so the next "Total X" starts fresh
+            if has_values:
+                section_had_accounts = False
+            continue
+
+        # ── Section headers: same text in both name columns, no values ───────
+        # In CBRE Condensed format, section headers repeat col A in col B.
+        col0 = str(row[0]).strip() if row else ""
+        col1 = str(row[1]).strip() if len(row) > 1 else ""
+        is_same_col = col0 == col1
+        if is_same_col and not has_values:
+            section_had_accounts = False
+            continue
+
+        # ── Yardi-style subtotals: have an account code AND "total" in name ──
+        # In Yardi/MRI, subtotal rows carry their own account codes (col A ≠ col B)
+        # but the description says "Total X" — these always duplicate individual items.
+        is_yardi_total = (not is_same_col and has_values and
+                          (name_lower.startswith("total ") or
+                           name_lower.startswith("subtotal ")))
+        if is_yardi_total:
+            continue
+
+        # ── CBRE-style "Total X" rows: col A = col B, has values ─────────────
+        # Keep if no individual items have been seen yet in this section (leaf data).
+        # Skip if individual items exist (duplicate subtotal).
+        is_total_row = is_same_col and has_values and (
+            name_lower.startswith("total ") or name_lower.startswith("subtotal ")
+        )
+        if is_total_row:
+            if section_had_accounts:
+                section_had_accounts = False  # marks section boundary
+                continue
+            # No individual items → this IS the leaf data; keep it.
+
+        # ── Individual account-code row or blank-acct leaf row ───────────────
+        if not is_total_row:
+            section_had_accounts = True
+
+        # ── Map to COA and accumulate ─────────────────────────────────────────
+        # For blank acct_raw, use the name as the lookup key so each item gets
+        # its own unmapped entry (e.g. "Electricity" and "Gas" stay distinct).
+        prefix   = _acct_prefix(acct_raw) if acct_raw else name_raw.strip().lower()
+        coa_code = acct_map.get(prefix)
         if not coa_code:
-            if any(v != 0 for v in monthly):
+            if has_values:
                 unmapped.append({"prefix": prefix, "acct": acct_raw, "name": name_raw, "total": total})
             coa_code = "nai" if total >= 0 else "nae"
 
