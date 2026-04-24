@@ -32,6 +32,11 @@ def _write_cell(ws, row: int, col: int, value):
     cell.fill = _WHITE_FILL
 
 
+def _clear_fill(ws, row: int, col: int):
+    """Clear the fill on a cell without changing its value."""
+    ws.cell(row, col).fill = _WHITE_FILL
+
+
 def _fill_proforma_overview(ws, data: dict, whisper: str = "", mkt: dict | None = None):
     """Fill the Property Overview and Purchase Summary section (col C)."""
     # Row → (col C value)
@@ -130,6 +135,27 @@ def _fill_t12_intake(ws_intake, t12_parsed: dict):
     ws_intake.cell(40, 19).value = f"=P{noi_row}"
 
 
+def _fill_payroll_schedule(ws, units: int):
+    """Write head counts into the payroll schedule (col W = col 23, rows 5–14)."""
+    if not units or units <= 0:
+        return
+    per_100 = max(1, units // 100)
+    head_counts = {
+        5:  1,        # Manager
+        6:  0,        # Assistant Manager
+        7:  per_100,  # Leasing Staff
+        8:  0,        # Doorman
+        9:  0,        # Concierge
+        10: 1,        # Maintenance Manager
+        11: per_100,  # Maintenance Tech
+        12: 0,        # Grounds
+        13: 0,        # Porter
+        14: 0,        # Courtesy Patrol
+    }
+    for row, count in head_counts.items():
+        _write_cell(ws, row, 23, count)
+
+
 def _fill_ret_schedule(ws, data: dict, tax_data: dict | None):
     """
     Fill the Real Estate Tax Schedule (cols V–AF, rows 21–41).
@@ -139,13 +165,14 @@ def _fill_ret_schedule(ws, data: dict, tax_data: dict | None):
 
     Key inputs:
       V22 (row 22, col 22): Re-Assessment Year — year after closing
-      V29 (row 29, col 22): Full Market Value (pre-sale assessed value from tax bill)
+      V29 (row 29, col 22): Full Market Value (pre-sale assessed value from tax bill,
+                             or purchase price as fallback)
       W29 (row 29, col 23): Same — formula chain starts from W29
-      V35 (row 35, col 22): Millage Rate (implied from tax bill, else default)
+      V35 (row 35, col 22): Millage Rate (implied from tax bill, else template default)
       V38 (row 38, col 22): Non Ad-Valorem Tax (noxious weed, conservation, etc.)
     """
     # Re-assessment year: CFO date year + 1, or current year + 1
-    cfo = ws.cell(10, 3).value  # C10 = Initial CFO Date (already in sheet)
+    cfo = ws.cell(10, 3).value  # C10 = Initial CFO Date
     try:
         if isinstance(cfo, (datetime, date)):
             reassess_year = cfo.year + 1
@@ -155,23 +182,31 @@ def _fill_ret_schedule(ws, data: dict, tax_data: dict | None):
         reassess_year = datetime.now().year + 1
     _write_cell(ws, 22, 22, reassess_year)
 
-    if tax_data:
-        assessed = tax_data.get("tax_assessment")
-        millage  = tax_data.get("implied_millage")
-        non_adv  = tax_data.get("non_adv_tax")
+    assessed = tax_data.get("tax_assessment") if tax_data else None
+    millage  = tax_data.get("implied_millage") if tax_data else None
+    non_adv  = tax_data.get("non_adv_tax")    if tax_data else None
 
-        # Current assessed value → Full Market Value pre-sale (V29 and W29)
-        if assessed:
-            _write_cell(ws, 29, 22, assessed)
-            _write_cell(ws, 29, 23, assessed)
+    # V29 / W29: current assessed value from tax bill; fall back to purchase price
+    if not assessed:
+        assessed = _safe_float(data.get("purchase_price"))
+    if assessed:
+        _write_cell(ws, 29, 22, assessed)
+        _write_cell(ws, 29, 23, assessed)
+    else:
+        _clear_fill(ws, 29, 22)
+        _clear_fill(ws, 29, 23)
 
-        # Implied millage rate
-        if millage:
-            _write_cell(ws, 35, 22, millage)
+    # V35: implied millage — write real value if available, else clear fill on default
+    if millage:
+        _write_cell(ws, 35, 22, millage)
+    else:
+        _clear_fill(ws, 35, 22)
 
-        # Non ad-valorem tax (noxious weed, conservation, etc.)
-        if non_adv is not None:
-            _write_cell(ws, 38, 22, non_adv)
+    # V38: non ad-valorem fees — write if available, else clear fill on default
+    if non_adv is not None:
+        _write_cell(ws, 38, 22, non_adv)
+    else:
+        _clear_fill(ws, 38, 22)
 
 
 def build_excel(data: dict, t12_parsed=None, whisper: str = "",
@@ -190,6 +225,11 @@ def build_excel(data: dict, t12_parsed=None, whisper: str = "",
     # Fill QuickVal Proforma overview
     ws_pf = wb["QuickVal Proforma"]
     _fill_proforma_overview(ws_pf, data, whisper, market_data)
+
+    # Fill payroll schedule head counts
+    units = _safe_float(data.get("units"))
+    if units:
+        _fill_payroll_schedule(ws_pf, int(units))
 
     # Fill RET schedule
     _fill_ret_schedule(ws_pf, data, tax_data)
